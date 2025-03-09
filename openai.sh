@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-debug=false
+debug=true
 
 source keys.sh
 num_keys=${#keys[@]}
@@ -27,7 +27,7 @@ if [[ ${dataset} == '2wikihop' ]]; then
     index_name=wikipedia_dpr
     fewshot=8
     max_num_examples=500
-    _len=256
+    max_generation_len=256
 elif [[ ${dataset} == 'strategyqa' ]]; then
     input="--input data/strategyqa/dev_beir"
     engine=elasticsearch
@@ -72,7 +72,7 @@ if [[ ${debug} == "true" ]]; then
         --fewshot ${fewshot} \
         --search_engine ${engine} \
         --index_name ${index_name} \
-        --max_num_examples 100 \
+        --max_num_examples 10 \
         --max_generation_len ${max_generation_len} \
         --batch_size ${debug_batch_size} \
         --output test.jsonl \

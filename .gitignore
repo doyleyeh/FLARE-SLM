@@ -175,3 +175,7 @@ cython_debug/
 ## Custom
 .vscode
 cache-*.arrow
+
+data/dpr
+elasticsearch-7.17.9
+elasticsearch-7.17.9.tar.gz

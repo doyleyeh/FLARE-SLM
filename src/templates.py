@@ -6,7 +6,7 @@ import spacy
 from nltk.tokenize.punkt import PunktSentenceTokenizer
 import tiktoken
 # from .utils import openai_api_call, Utils
-from utils import HFmodel_call, Utils
+from .utils import HFmodel_call, Utils
 
 
 class CtxPrompt:
