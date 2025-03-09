@@ -27,7 +27,7 @@ if [[ ${dataset} == '2wikihop' ]]; then
     index_name=wikipedia_dpr
     fewshot=8
     max_num_examples=500
-    max_generation_len=256
+    _len=256
 elif [[ ${dataset} == 'strategyqa' ]]; then
     input="--input data/strategyqa/dev_beir"
     engine=elasticsearch
