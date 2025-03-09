@@ -801,28 +801,28 @@ if __name__ == '__main__':
 
     # load data
     if args.dataset == 'strategyqa':
-        data = StrategyQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
+        data_obj = StrategyQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
     elif args.dataset == '2wikihop':
-        data = WikiMultiHopQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
+        data_obj = WikiMultiHopQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
     elif args.dataset == 'asqa':
-        data = ASQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
+        data_obj = ASQA(args.input, prompt_type=retrieval_kwargs['prompt_type'])
     elif args.dataset == 'wikiasp':
-        data = WikiAsp(args.input, prompt_type=retrieval_kwargs['prompt_type'])
+        data_obj = WikiAsp(args.input, prompt_type=retrieval_kwargs['prompt_type'])
     else:
         raise NotImplementedError
     
     if qagent.use_ctx_for_examplars == 'ret':
         logging.info('retrieve ctx for examplars')
-        data.retrieval_augment_examplars(qagent)
+        data_obj.retrieval_augment_examplars(qagent)
 
     # Format the dataset
-    data.format(fewshot=args.fewshot)
+    data_obj.format(fewshot=args.fewshot)
 
     # modify prompt properities
     if retrieval_kwargs['use_retrieval_instruction']:
         CtxPrompt.ret_instruction = RetrievalInstruction(method=retrieval_kwargs['use_retrieval_instruction'])
     if retrieval_kwargs['use_instruction']:
-        CtxPrompt.instruction = data.instruction
+        CtxPrompt.instruction = data_obj.instruction
     CtxPrompt.retrieval_kwargs = retrieval_kwargs
     CtxPrompt.format_reference_method = retrieval_kwargs['format_reference_method']
     CtxPrompt.clean_reference = retrieval_kwargs['clean_reference'] if 'clean_reference' in retrieval_kwargs else False
@@ -830,6 +830,7 @@ if __name__ == '__main__':
     CtxPrompt.add_ref_suffix = retrieval_kwargs['add_ref_suffix']
     CtxPrompt.add_ref_prefix = retrieval_kwargs['add_ref_prefix']
 
+    data = data_obj.dataset
     if args.max_num_examples and args.max_num_examples < len(data):
         data = data.shuffle()
         data = data.select(range(args.max_num_examples))
