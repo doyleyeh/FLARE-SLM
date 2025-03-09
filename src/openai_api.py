@@ -141,8 +141,8 @@ class QueryAgent:
                 self.ret_frequency = self.max_generation_len
         self.regenerate_at_end = retrieval_kwargs.get('regenerate_at_end', False)
 
-        self.frequency_penalty = retrieval_kwargs.get('frequency_penalty', 0.0)
-        self.frequency_penalty_in_prompt = retrieval_kwargs.get('frequency_penalty_in_prompt', 0.0)
+        self.frequency_penalty = retrieval_kwargs.get('frequency_penalty', 1.0)
+        self.frequency_penalty_in_prompt = retrieval_kwargs.get('frequency_penalty_in_prompt', 1.0)
 
         self.prefix_method = retrieval_kwargs.get('prefix_method', None)
         if self.prefix_method in {'sentence', 'all'} or (self.prefix_method and self.prefix_method.startswith('freq:')):  # no truncation when computing PPL
@@ -229,12 +229,12 @@ class QueryAgent:
                 params['max_tokens'] = max(2, params['max_tokens'])  # TODO: OPT doesn't have this bug, but openai returns nothing if set to 1
 
 
-        # logit bias
-        logit_bias = dict()
-        if force_generate:
-            logit_bias={f'{force_generate[0]}': force_generate[1]}
-        elif forbid_generate:
-            logit_bias={f'{forbid_generate[0]}': -100}
+        # # logit bias
+        # logit_bias = dict()
+        # if force_generate:
+        #     logit_bias={f'{force_generate[0]}': force_generate[1]}
+        # elif forbid_generate:
+        #     logit_bias={f'{forbid_generate[0]}': -100}
 
         # format to get the final prompt
         prompts: List[Tuple[str, int, List[str]]] = [q.format(use_ctx=self.use_ctx, is_chat_model=is_chat_model, api_key=api_key) for q in queries]
@@ -256,16 +256,16 @@ class QueryAgent:
             for i in range(len(prompts_to_issue)):
                 prompts_to_issue[i] += prefixes[i][0]
 
-        # add penalty
-        if self.frequency_penalty_in_prompt:
-            assert len(queries) == 1, 'batching is not supported'
-            current_cases: List[str] = [q[-l:] if l else '' for q, l, _ in prompts]  # only use the generated content
-            counter = Counter(sum(self.tokenizer(current_cases)['input_ids'], []))
-            tokid2count: Dict[int, int] = dict(sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:200])  # penalize at most 200 tokens
-            for tokid, count in tokid2count.items():
-                if tokid not in logit_bias:
-                    logit_bias[str(tokid)] = 0
-                logit_bias[str(tokid)] -= self.frequency_penalty_in_prompt * count
+        # # add penalty
+        # if self.frequency_penalty_in_prompt:
+        #     assert len(queries) == 1, 'batching is not supported'
+        #     current_cases: List[str] = [q[-l:] if l else '' for q, l, _ in prompts]  # only use the generated content
+        #     counter = Counter(sum(self.tokenizer(current_cases)['input_ids'], []))
+        #     tokid2count: Dict[int, int] = dict(sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:200])  # penalize at most 200 tokens
+        #     for tokid, count in tokid2count.items():
+        #         if tokid not in logit_bias:
+        #             logit_bias[str(tokid)] = 0
+        #         logit_bias[str(tokid)] -= self.frequency_penalty_in_prompt * count
 
         # API call
         if is_chat_model:
@@ -726,6 +726,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     # args.multiprocess = len(args.openai_keys) > 1
+    args.multiprocess = False
+
     random.seed(args.seed)
     np.random.seed(args.seed)
 
