@@ -203,7 +203,7 @@ def HFmodel_call(*args, **kwargs):
             text_inputs = [""]
 
     # 2) Extract generation params
-    max_tokens = kwargs.get('max_tokens', 50)
+    max_tokens = kwargs.get('max_tokens', 128)
     temperature = kwargs.get('temperature', 1.0)
     top_p = kwargs.get('top_p', 1.0)
     frequency_penalty  = kwargs.get('frequency_penalty', 1.0)   # map to repetition penalty
