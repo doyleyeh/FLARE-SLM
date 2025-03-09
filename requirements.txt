@@ -1,0 +1,16 @@
+openai
+transformers
+beir
+datasets
+tqdm
+scipy
+sacrebleu
+evaluate
+rouge_score
+chardet
+cchardet
+BeautifulSoup4
+sentencepiece
+filelock
+tenacity
+spacy
