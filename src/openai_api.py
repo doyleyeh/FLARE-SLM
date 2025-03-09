@@ -295,7 +295,7 @@ class QueryAgent:
                 messages=messages,
                 temperature=self.temperature,
                 top_p=self.top_p,
-                max_tokens=params.get('max_tokens', 50),
+                max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
                 logprobs=0,
             )
@@ -357,7 +357,7 @@ class QueryAgent:
                 prompt=prompts_to_issue,
                 temperature=self.temperature,
                 top_p=self.top_p,
-                max_tokens=params.get('max_tokens', 50),
+                max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
                 logprobs=0,
             )
