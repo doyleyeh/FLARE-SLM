@@ -91,7 +91,6 @@ function join_by {
 }
 
 joined_keys=$(join_by " " "${keys[@]:0:${num_keys}}")
-
 python -m src.openai_api \
     --model ${model} \
     --dataset ${dataset} ${input} ${prompt_type} \

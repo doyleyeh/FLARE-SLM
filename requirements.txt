@@ -14,3 +14,4 @@ sentencepiece
 filelock
 tenacity
 spacy
+elasticsearch

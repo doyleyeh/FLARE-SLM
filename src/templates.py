@@ -6,7 +6,7 @@ import spacy
 from nltk.tokenize.punkt import PunktSentenceTokenizer
 import tiktoken
 # from .utils import openai_api_call, Utils
-from .utils import HFmodel_call, Utils
+from .utils import HFmodel_call, Utils, load_model_and_tokenizer
 
 
 class CtxPrompt:
@@ -660,7 +660,9 @@ class ApiReturn:
         if self.has_tokens:
             return len(self.tokens)
         else:
-            return len(tiktoken.encoding_for_model(self.model).encode(self.text))
+            # return len(tiktoken.encoding_for_model(self.model).encode(self.text))
+            _, tokenizer = load_model_and_tokenizer(self.model)
+            return len(tokenizer.encode(self.text or "", add_special_tokens=False))
 
     @property
     def has_endoftext(self):

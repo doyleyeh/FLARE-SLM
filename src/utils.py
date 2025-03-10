@@ -8,10 +8,8 @@ import string
 import asyncio
 import openai
 import torch
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, LogitsProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor
 logging.basicConfig(level=logging.INFO)
-
-
 
 class FrequencyPenaltyProcessor(LogitsProcessor):
     """
@@ -224,9 +222,12 @@ def load_model_and_tokenizer(model_name):
     model_path = model_mapping[model_name]
     logging.info(f"Loading model+tokenizer for {model_name} from {model_path}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, token=hf_token)
+    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
-
+    
+    # model.to("cuda")
+    # model = nn.DataParallel(model)
+    
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
 
