@@ -225,8 +225,8 @@ def load_model_and_tokenizer(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
     
-    # model.to("cuda")
-    # model = nn.DataParallel(model)
+    model.to("cuda")
+    model = nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
