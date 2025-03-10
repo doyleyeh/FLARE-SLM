@@ -8,7 +8,9 @@ import string
 import asyncio
 import openai
 import torch
+import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor
+
 logging.basicConfig(level=logging.INFO)
 
 class FrequencyPenaltyProcessor(LogitsProcessor):
@@ -225,8 +227,9 @@ def load_model_and_tokenizer(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
     
-    model.to("cuda")
-    model = nn.DataParallel(model)
+    if torch.cuda.is_available():
+        model.to("cuda")
+        model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
@@ -290,11 +293,14 @@ def HFmodel_call(*args, **kwargs):
     for input_text in text_inputs:
         # 5) Tokenize
         inputs_tok = tokenizer(input_text, return_tensors='pt')
-        input_ids = inputs_tok.input_ids
+        if torch.cuda.is_available():
+            input_ids = inputs_tok.input_ids.to("cuda")  
+        else:
+            input_ids = inputs_tok.input_ids
 
         # 6) Generate with your desired parameters, passing in the logits_processors
         with torch.no_grad():
-            output = model.generate(
+            output = model.module.generate(
                 input_ids=input_ids,
                 max_length=input_ids.shape[1] + max_tokens,
                 temperature=temperature if do_sample else 1.0,
