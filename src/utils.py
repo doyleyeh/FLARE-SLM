@@ -253,7 +253,7 @@ def HFmodel_call(*args, **kwargs):
     temperature = kwargs.get('temperature', 1.0)
     top_p = kwargs.get('top_p', 1.0)
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
-    return_logprobs = kwargs.get('logprobs', 0)
+    return_logprobs = kwargs.get('logprobs', 1)
     do_sample = (temperature > 0.0)
 
     # 3) Get text to generate from. Could be 'messages' or 'prompt'.

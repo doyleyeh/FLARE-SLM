@@ -112,7 +112,6 @@ class CtxPrompt:
                 max_tokens=max_tokens,
                 temperature=0.0,
                 top_p=0.0,
-                api_key=api_key  # if you want to keep an 'api_key' param, though it's local
             )
 
             # 4) Parse the local model's result. 

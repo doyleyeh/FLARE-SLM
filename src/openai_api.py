@@ -17,7 +17,7 @@ from .retriever import BM25
 from .templates import CtxPrompt, ApiReturn, RetrievalInstruction
 from .datasets import StrategyQA, WikiMultiHopQA, WikiAsp, ASQA
 # from .utils import Utils, NoKeyAvailable, openai_api_call, HFmodel_call
-from .utils import Utils, HFmodel_call
+from .utils import Utils, HFmodel_call, load_model_and_tokenizer
 logging.basicConfig(level=logging.INFO)
 
 
@@ -90,7 +90,8 @@ class QueryAgent:
         tokenizer: GPT2TokenizerFast = None,
     ):
         self.model = model
-        self.tokenizer = tokenizer
+        # self.tokenizer = tokenizer
+        _, self.tokenizer = load_model_and_tokenizer(model)
 
         # generation args
         self.final_stop_sym = retrieval_kwargs.get('final_stop_sym', '\n\n')
@@ -297,7 +298,7 @@ class QueryAgent:
                 top_p=self.top_p,
                 max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
-                logprobs=0,
+                logprobs=1,
             )
             generations = []
             for i, r in enumerate(responses["choices"]):
@@ -359,7 +360,7 @@ class QueryAgent:
                 top_p=self.top_p,
                 max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
-                logprobs=0,
+                logprobs=1,
             )
             generations = []
             for i, r in enumerate(responses["choices"]):
