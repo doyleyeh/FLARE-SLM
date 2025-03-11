@@ -361,36 +361,47 @@ class QueryAgent:
                 max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
                 logprobs=1,
+                echo=echo,
             )
-            generations = []
-            for i, r in enumerate(responses["choices"]):
-                text_out = r["text"]
-                finish_reason = r.get("finish_reason", "stop")
-
-                # If we have logprobs, you can parse them here:
-                if "logprobs" in r:
-                    tokens = r["logprobs"]["tokens"]
-                    # might do something to get numeric values for probs
-                    # or skip if you just want them as None
-                    # For example:
-                    raw_probs = r["logprobs"]["token_logprobs"]  # maybe a list of floats
-                    tokens_out = tokens
-                    probs_out = [float(lp) for lp in raw_probs]  # or do math on them
-                    offsets_out = None  # you can skip
+            # generations = []
+            generations: List[ApiReturn] = []
+            for i, choice_dict in enumerate(responses["choices"]):
+                text_out = choice_dict["text"]
+                finish_reason = choice_dict.get("finish_reason", "stop")
+                
+                # Grab token-level data if present
+                if "logprobs" in choice_dict and choice_dict["logprobs"]:
+                    tokens_out = choice_dict["logprobs"]["tokens"]
+                    raw_probs = choice_dict["logprobs"]["token_logprobs"]
+                    offsets_out = choice_dict["logprobs"]["text_offset"]
                 else:
                     tokens_out = None
-                    probs_out = None
+                    raw_probs = None
                     offsets_out = None
 
+                # Original code logic for skip_len
+                # - If echo=True => skip_len=0 (we return prompt + generation as one)
+                # - If echo=False => skip_len = length of the prompt, so the text we store is purely the generation
+                #   In the old approach, that was how we “trimmed” the text if we only wanted the new tokens.
+                skip_len = 0
+                if not echo:
+                    # The number of characters in the prompt we pass
+                    # (In the original code, we used the length of the prompt string, or the # tokens in the prompt, etc.)
+                    skip_len = len(prompts_to_issue[i])  # or some other measure if you prefer
+
+                # Convert logprobs from log-space if you want probabilities, or just store them as-is:
+                probs_out = [float(lp) for lp in raw_probs] if raw_probs else None
+
+                # Build the ApiReturn object
                 gen_obj = ApiReturn(
-                    prompt=prompts_to_issue[i] if i < len(prompts_to_issue) else "",
+                    prompt=prompts_to_issue[i],
                     text=text_out,
                     tokens=tokens_out,
                     probs=probs_out,
                     offsets=offsets_out,
                     finish_reason=finish_reason,
                     model=responses["model"],
-                    skip_len=0
+                    skip_len=skip_len
                 )
                 generations.append(gen_obj)        
 

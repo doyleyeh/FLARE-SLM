@@ -9,7 +9,7 @@ import asyncio
 import openai
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 logging.basicConfig(level=logging.INFO)
 
@@ -240,28 +240,31 @@ def HFmodel_call(*args, **kwargs):
       - model name
       - prompt or messages
       - max_tokens, temperature, top_p, etc.
-      - frequency_penalty (to replicate openAI's concept)
-
+      - frequency_penalty (OpenAI-like)
+      - echo (bool): if True, return the prompt+generated text in .text
+                     and token-wise data from the beginning of the prompt
+                     all the way through the generation.
     And returns an OpenAI-style dict with "model" and "choices" keys.
     """
-    # 1) Load or get model+tokenizer
-    model_name = kwargs.get('model', 'llama3.1-8b')
-    model, tokenizer = load_model_and_tokenizer(model_name)
 
-    # 2) Parse generation parameters
+    # 1) Parse arguments
+    model_name = kwargs.get('model', 'llama3.1-8b')
+    echo = kwargs.get('echo', False)                     # <--- The new echo parameter
     max_tokens = kwargs.get('max_tokens', 128)
     temperature = kwargs.get('temperature', 1.0)
     top_p = kwargs.get('top_p', 1.0)
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
-    return_logprobs = kwargs.get('logprobs', 1)
-    do_sample = (temperature > 0.0)
+    return_logprobs = kwargs.get('logprobs', 1)          # If >0, we’ll collect token-level data
+
+    # 2) Load model & tokenizer
+    model, tokenizer = load_model_and_tokenizer(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 3) Get text to generate from. Could be 'messages' or 'prompt'.
     messages = kwargs.get('messages', None)
     if messages is not None:
-        # Very simple approach: gather content of user messages
+        # Chat-style usage: gather user-role content
         if len(messages) == 0:
             text_inputs = [""]
         else:
@@ -269,12 +272,12 @@ def HFmodel_call(*args, **kwargs):
             for msg in messages:
                 if msg['role'] == 'user':
                     text_inputs.append(msg['content'])
+            # fallback: if no user role found, just use last
             if not text_inputs:
-                # fallback: if no user role found
                 text_inputs = [messages[-1]['content']]
     else:
-        # Possibly used 'prompt' param
-        prompt = kwargs.get('prompt', None)
+        # Normal usage with 'prompt'
+        prompt = kwargs.get('prompt', "")
         if isinstance(prompt, str):
             text_inputs = [prompt]
         elif isinstance(prompt, list):
@@ -282,38 +285,35 @@ def HFmodel_call(*args, **kwargs):
         else:
             text_inputs = [""]
 
-    # 4) Build a LogitsProcessorList
-    from transformers import LogitsProcessorList
+    # 4) Build logits processors (for freq_penalty etc.)
     logits_processors = LogitsProcessorList()
 
     # If freq_penalty > 0, add our custom FrequencyPenaltyProcessor
     if freq_penalty > 0.0:
         freq_proc = FrequencyPenaltyProcessor(penalty=freq_penalty)
         logits_processors.append(freq_proc)
-    
-    # 5) Generate for each text input
+    # Generate for each text input (We will fill this with one entry per prompt)
     choices = []
     total_prompt_tokens = 0
     total_completion_tokens = 0
-    for idx, input_text in enumerate(text_inputs):
-        # Tokenize the prompt first
+
+    for idx, prompt_text in enumerate(text_inputs):
+        # 5) Tokenize (Encode) the prompt
         prompt_enc = tokenizer(
-            input_text,
+            prompt_text,
             return_tensors='pt',
             add_special_tokens=False,
-            return_offsets_mapping=True
+            return_offsets_mapping=False,   # We don't need it *yet*
         )
-
         input_ids = prompt_enc["input_ids"].to(device)
-        prompt_len = input_ids.shape[1]  # how many tokens in the prompt
-        prompt_offsets = prompt_enc["offset_mapping"][0] if "offset_mapping" in prompt_enc else None
+        prompt_len = input_ids.shape[1] # how many tokens in the prompt
 
-        # The raw generation call
+        # 6) Generate
         with torch.no_grad():
             output = model_for_generate.generate(
                 input_ids=input_ids,
                 max_length=prompt_len + max_tokens,
-                temperature=temperature if do_sample else 1.0,
+                temperature=temperature if temperature > 0.0 else 1.0,
                 top_p=top_p,
                 repetition_penalty=1.0,
                 logits_processor=logits_processors,
@@ -321,70 +321,160 @@ def HFmodel_call(*args, **kwargs):
                 output_scores=True
             )
 
-        # The entire sequence includes prompt + newly generated tokens
+        # "full_ids" is the entire token sequence = prompt + newly-generated
         full_ids = output.sequences[0]
-        full_len = full_ids.shape[0]
+
+        # If echo=True, we return the entire text (prompt+completion).
+        # If echo=False, we return only the newly generated tokens.
+        if echo:
+            used_ids = full_ids
+        else:
+            used_ids = full_ids[prompt_len:]  # slice out only new tokens
+
         # Convert result to text
-        gen_ids = full_ids[prompt_len:]  # the new tokens
-        generated_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+        generated_text = tokenizer.decode(used_ids, skip_special_tokens=True)
 
-        # We decide a "finish_reason":
-        finish_reason = "stop"  # or "length" if you want to detect it
-
-        # We'll gather usage stats
+        # 7) Basic usage stats
         prompt_tokens_count = prompt_len
-        completion_tokens_count = gen_ids.shape[0]
+        completion_tokens_count = len(used_ids)
         total_prompt_tokens += prompt_tokens_count
         total_completion_tokens += completion_tokens_count
 
-        # -----------------------------
-        # 6) Build logprobs + offsets if requested
-        # -----------------------------
-        # If user wants token-level logprobs:
+        # 8) Build token-level arrays if logprobs>0
         token_strs = []
         token_logprobs = []
-        token_offsets = []
-        top_logprobs = None  # or store if needed
+        token_offsets = None
 
         if return_logprobs:
-            scores = output.scores  # list of [batch, vocab] logits for each new token
-            for i, logits_i in enumerate(scores):
-                # i-th token in the newly generated portion
-                step_logprobs = torch.log_softmax(logits_i[0], dim=-1)
-                token_id = gen_ids[i].item()
-                chosen_logprob = float(step_logprobs[token_id].item())
-                token_str = tokenizer.decode([token_id], skip_special_tokens=True)
+            # The raw generate call gives us `scores`, one for each new token
+            # that was generated (not including the prompt). We’ll reconstruct
+            # each new token’s logprob from these. If echo=True, we have to
+            # unify the prompt tokens + new tokens into a single array. So
+            # we’ll do a second pass to handle that properly.
 
-                token_strs.append(token_str)
-                token_logprobs.append(chosen_logprob)
+            # 8A) Collect the logprobs for the *newly generated* portion
+            #     from `scores`.
+            # (Hugging Face always returns one entry in `scores` per step in
+            #  the *generated* portion, ignoring the prompt.)
+            new_tokens_len = len(output.scores)  # how many steps
+            # For the portion that is newly generated, the tokens are:
+            # full_ids[prompt_len : prompt_len + new_tokens_len]
+            # The i-th new token is full_ids[prompt_len + i]
+            # We'll store logprobs for them in a local array
+            gen_token_ids = full_ids[prompt_len : prompt_len + new_tokens_len].tolist()
 
-            # Build text_offsets for the newly generated portion.
-            # One naive approach is to re-tokenize the entire (prompt + generated_text) 
-            # and slice, but let's do an approximate approach:
-            # 
-            # Re-tokenize the final text, then skip prompt_len tokens to align offsets
-            # (Potential minor differences in spacing or merges, but works in many cases.)
-            entire_text = input_text + generated_text
-            reenc = tokenizer(
-                entire_text,
-                return_offsets_mapping=True,
-                add_special_tokens=False
-            )
-            re_offsets = reenc["offset_mapping"]
-            # skip the first 'prompt_len' tokens
-            # but watch out for mismatch if the prompt re-encodes differently
-            # We'll do a safer approach: min(len(re_offsets), prompt_len + i)
-            new_token_offsets = re_offsets[prompt_len : prompt_len + len(gen_ids)]
-            # We only store the *start* offset typically (like OpenAI). 
-            # But you could store (start,end).
-            token_offsets = [o[0] for o in new_token_offsets]
+            # Collect logprobs for newly generated tokens
+            new_token_strs = []
+            new_token_logprobs = []
+            for i, logits_i in enumerate(output.scores):
+                step_logprobs = torch.log_softmax(logits_i[0], dim=-1)   # [vocab_size]
+                tok_id = gen_token_ids[i]
+                logp = float(step_logprobs[tok_id].item())
+                text_tok = tokenizer.decode([tok_id], skip_special_tokens=True)
 
-        # 7) Build the "choice" entry
+                new_token_strs.append(text_tok)
+                new_token_logprobs.append(logp)
+
+            # 8B) If echo=False, then logprobs[] should just be these new tokens.
+            #     If echo=True, we also want the prompt’s tokens in front, with
+            #     offsets starting at 0. So we’ll do a re-tokenization pass
+            #     over the ENTIRE combined text (prompt + generation).
+            #     Then we line up the final tokens array with the new_token_logprobs for the generation portion.
+            if echo:
+                # The text is prompt_text + generated_text
+                # We'll unify them in a single string:
+                full_text = tokenizer.decode(full_ids, skip_special_tokens=True)
+                # Re-tokenize to get offsets from the beginning
+                reenc = tokenizer(full_text, return_offsets_mapping=True, add_special_tokens=False)
+
+                # reenc["input_ids"] = all tokens (prompt + generation) in same subwording
+                # We want:
+                #  - tokens for the entire prompt + generation
+                #  - logprobs = None for the prompt portion (OpenAI does store them as “null”)
+                #  - offsets from 0.. for each token
+
+                # We'll do a naive direct alignment approach: one token from reenc
+                # for each ID in full_ids. Usually this matches perfectly if the
+                # same subword merges apply. We'll store something like:
+                offsets = reenc["offset_mapping"]  # list of (start,end) in the combined text
+                full_input_ids = reenc["input_ids"]
+
+                # Now we expect len(full_ids) == len(full_input_ids) in most cases,
+                # but if you see minor discrepancies, you'd need a more robust matching.
+                # We'll assume it lines up exactly:
+
+                # The first `prompt_len` tokens in full_ids are the prompt.
+                # The next `new_tokens_len` are the newly generated portion (the same size as `scores`).
+                # We'll create parallel arrays of strings + logprobs:
+                all_token_strs = []
+                all_token_logprobs = []
+                all_token_offsets = []
+                j = 0
+                for j in range(len(full_input_ids)):
+                    # text snippet
+                    t_str = tokenizer.decode([full_input_ids[j]], skip_special_tokens=True)
+                    # offset pair => store just the start offset (like OpenAI)
+                    start_offset = offsets[j][0]
+                    all_token_strs.append(t_str)
+                    all_token_offsets.append(start_offset)
+                    # For the prompt portion, logprobs = None
+                    if j < prompt_len:
+                        # no logprob for the prompt
+                        all_token_logprobs.append(None)
+                    else:
+                        # For newly generated tokens, we match up with new_token_logprobs
+                        # The index in new_token_logprobs is j - prompt_len
+                        gen_index = j - prompt_len
+                        # Check bounds
+                        if gen_index < len(new_token_logprobs):
+                            all_token_logprobs.append(new_token_logprobs[gen_index])
+                        else:
+                            # Should not normally happen, but guard anyway
+                            all_token_logprobs.append(None)
+
+                token_strs = all_token_strs
+                token_logprobs = all_token_logprobs
+                token_offsets = all_token_offsets
+
+            else:
+                # echo=False => no prompt tokens in `choices[].logprobs`
+                # so we do a re-tokenization just for the newly generated text
+                # to get offsets from 0.. up to len(generated_text).
+                if generated_text.strip():
+                    reenc = tokenizer(
+                        generated_text,
+                        return_offsets_mapping=True,
+                        add_special_tokens=False
+                    )
+                    offsets = reenc["offset_mapping"]
+                    gen_input_ids = reenc["input_ids"]
+
+                    # We also have new_token_strs + new_token_logprobs from above
+                    # We must line them up. Typically the merges should match 1:1 if the text is short.
+                    # We'll do the naive approach: assume lengths match exactly.
+                    # If there's a mismatch, you'll need a more robust alignment.
+                    if len(gen_input_ids) == len(new_token_strs):
+                        token_strs = new_token_strs
+                        token_logprobs = new_token_logprobs
+                        token_offsets = [off[0] for off in offsets]  # store just start
+                    else:
+                        # fallback: minimal usage
+                        token_strs = new_token_strs
+                        token_logprobs = new_token_logprobs
+                        token_offsets = [None]*len(new_token_strs)
+                else:
+                    # no new text
+                    token_strs = []
+                    token_logprobs = []
+                    token_offsets = []
+
+        # 9) Build the choice dictionary
+        finish_reason = "stop"  # or "length", etc.
         choice_data = {
             "text": generated_text,
             "index": idx,
-            "logprobs": None,
-            "finish_reason": finish_reason
+            "finish_reason": finish_reason,
+            "logprobs": None
         }
         if return_logprobs:
             choice_data["logprobs"] = {
@@ -395,12 +485,9 @@ def HFmodel_call(*args, **kwargs):
 
         choices.append(choice_data)
 
-    # -----------------------------
-    # 8) Build final OpenAI-style JSON
-    # -----------------------------
-    # Summarize usage for entire batch
+    # 10) Summarize usage across the entire batch
     total_used_tokens = total_prompt_tokens + total_completion_tokens
-    openai_response = {
+    response = {
         "object": "text_completion",
         "model": model_name,
         "choices": choices,
@@ -410,6 +497,4 @@ def HFmodel_call(*args, **kwargs):
             "total_tokens": total_used_tokens
         }
     }
-
-    return openai_response
-    
+    return response
