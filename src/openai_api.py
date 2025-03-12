@@ -11,7 +11,7 @@ from operator import itemgetter
 from collections import defaultdict, Counter
 from multiprocessing import Process, Queue, Lock
 from multiprocessing.managers import BaseManager
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, AutoTokenizer
 from tenacity import retry, stop_after_attempt, wait_fixed
 from .retriever import BM25
 from .templates import CtxPrompt, ApiReturn, RetrievalInstruction
@@ -87,11 +87,11 @@ class QueryAgent:
         max_generation_len: int = 128,
         temperature: float = 0,
         retrieval_kwargs: Dict[str, Any] = {},
-        tokenizer: GPT2TokenizerFast = None,
+        tokenizer: AutoTokenizer = None,
     ):
         self.model = model
-        # self.tokenizer = tokenizer
-        _, self.tokenizer = load_model_and_tokenizer(model)
+        self.tokenizer = tokenizer
+        # _, self.tokenizer = load_model_and_tokenizer(model)
 
         # generation args
         self.final_stop_sym = retrieval_kwargs.get('final_stop_sym', '\n\n')
@@ -744,8 +744,9 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
 
     # init tokenizer for truncation
-    prompt_tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
-    prompt_tokenizer.pad_token = prompt_tokenizer.eos_token
+    # prompt_tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
+    # prompt_tokenizer.pad_token = prompt_tokenizer.eos_token
+    _, prompt_tokenizer = load_model_and_tokenizer(args.model)
 
     # default args
     retrieval_kwargs = {
