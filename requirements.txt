@@ -14,4 +14,4 @@ sentencepiece
 filelock
 tenacity
 spacy
-elasticsearch
+elasticsearch<8.0.0
