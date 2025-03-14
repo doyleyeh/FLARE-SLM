@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-debug=true
+debug=false
 
 source keys.sh
 num_keys=${#keys[@]}
@@ -72,7 +72,7 @@ if [[ ${debug} == "true" ]]; then
         --fewshot ${fewshot} \
         --search_engine ${engine} \
         --index_name ${index_name} \
-        --max_num_examples 1 \
+        --max_num_examples 10 \
         --max_generation_len ${max_generation_len} \
         --batch_size ${debug_batch_size} \
         --output test.jsonl \

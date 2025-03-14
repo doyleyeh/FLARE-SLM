@@ -161,8 +161,8 @@ def HFmodel_call(*args, **kwargs):
         else:
             text_inputs = []
             for msg in messages:
-                if msg['role'] == 'user':
-                    text_inputs.append(msg['content'])
+                role = msg["role"].capitalize()
+                text_inputs.append(f"{role}: {msg['content']}")
             if not text_inputs:  # fallback if no user content
                 text_inputs = [messages[-1]['content']]
     else:
@@ -408,60 +408,61 @@ if __name__ == '__main__':
     print("\nGenerated text:\n", response["choices"][0]["text"])
     print("########################################################")
 
-    # ##########################
-    # # Chat-style completion
-    # messages = [
-    #     {"role": "system", "content": "You are a friendly, helpful AI assistant."},
-    #     {"role": "user", "content": "Hello! How are you today?"}
+    ##########################
+    # Chat-style completion
+    messages = [
+        {"role": "system", "content": "You are a friendly, helpful AI assistant."},
+        {"role": "user", "content": "Hello! How are you today?"}
+    ]
+    prompt = "\n".join(f"{message['role'].capitalize()}: {message['content']}" for message in messages)
+    response = HFmodel_call(
+        model="llama3.1-8b",
+        messages=messages,    # Provide messages instead of a direct 'prompt'
+        max_tokens=60,
+        echo=True             # Include the prompt in the returned text
+    )
+    print("Response object:\n", response)
+    print("Chat response:\n", response["choices"][0]["text"])
+    # ###################################
+    # # Advanced usage with logprobs
+    # response = HFmodel_call(
+    #     model="llama3.1-8b",
+    #     prompt="Explain the theory of relativity in simple terms:",
+    #     max_tokens=100,
+    #     temperature=0,       # Sampling temperature
+    #     top_p=1.0,             # Top-p nucleus sampling
+    #     frequency_penalty=0.5, # Apply frequency penalty (OpenAI-like)
+    #     echo=True,             # Include the prompt in the returned text
+    #     logprobs=1             # Return token-level logprobs
+    # )
+    # print("Response object:\n", response)
+    # print("Generated text (including prompt):\n", response["choices"][0]["text"])
+
+    # # If logprobs=1, you can inspect the tokens and their log probabilities:
+    # log_probs_info = response["choices"][0]["logprobs"]
+    # print("Tokens:", log_probs_info["tokens"])
+    # print("Token logprobs:", log_probs_info["token_logprobs"])
+    # print("Text offsets:", log_probs_info["text_offset"])
+    # print("########################################################")
+    # ##############################
+    # # Multiple prompts
+    # prompts = [
+    #     "Write a short poem about the sunrise.",
+    #     "What is the capital of France?"
     # ]
 
     # response = HFmodel_call(
+    #     prompt=prompts,       # List of multiple prompts
     #     model="llama3.1-8b",
-    #     messages=messages,    # Provide messages instead of a direct 'prompt'
-    #     max_tokens=60
+    #     max_tokens=30
     # )
-    # print("Response object:\n", response)
-    # print("Chat response:\n", response["choices"][0]["text"])
-    ###################################
-    # Advanced usage with logprobs
-    response = HFmodel_call(
-        model="llama3.1-8b",
-        prompt="Explain the theory of relativity in simple terms:",
-        max_tokens=100,
-        temperature=0,       # Sampling temperature
-        top_p=1.0,             # Top-p nucleus sampling
-        frequency_penalty=0.5, # Apply frequency penalty (OpenAI-like)
-        echo=True,             # Include the prompt in the returned text
-        logprobs=1             # Return token-level logprobs
-    )
-    print("Response object:\n", response)
-    print("Generated text (including prompt):\n", response["choices"][0]["text"])
 
-    # If logprobs=1, you can inspect the tokens and their log probabilities:
-    log_probs_info = response["choices"][0]["logprobs"]
-    print("Tokens:", log_probs_info["tokens"])
-    print("Token logprobs:", log_probs_info["token_logprobs"])
-    print("Text offsets:", log_probs_info["text_offset"])
-    print("########################################################")
-    ##############################
-    # Multiple prompts
-    prompts = [
-        "Write a short poem about the sunrise.",
-        "What is the capital of France?"
-    ]
-
-    response = HFmodel_call(
-        prompt=prompts,       # List of multiple prompts
-        model="llama3.1-8b",
-        max_tokens=30
-    )
-
-    # Each prompt has its own choice object
-    for idx, choice in enumerate(response["choices"]):
-        print(f"Prompt {idx+1}: {prompts[idx]}")
-        print("Completion:", choice["text"])
-        print("Finish reason:", choice["finish_reason"])
-        print("-"*40)
+    # # Each prompt has its own choice object
+    # for idx, choice in enumerate(response["choices"]):
+    #     print(f"Prompt {idx+1}: {prompts[idx]}")
+    #     print("Completion:", choice["text"])
+    #     print("Finish reason:", choice["finish_reason"])
+    #     print("-"*40)
 
 
     print("Usage stats:")

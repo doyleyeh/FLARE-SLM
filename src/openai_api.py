@@ -384,13 +384,13 @@ class QueryAgent:
                 # - If echo=False => skip_len = length of the prompt, so the text we store is purely the generation
                 #   In the old approach, that was how we “trimmed” the text if we only wanted the new tokens.
                 skip_len = 0
-                if not echo:
+                if echo:
                     # The number of characters in the prompt we pass
                     # (In the original code, we used the length of the prompt string, or the # tokens in the prompt, etc.)
                     skip_len = len(prompts_to_issue[i])  # or some other measure if you prefer
 
                 # Convert logprobs from log-space if you want probabilities, or just store them as-is:
-                probs_out = [float(lp) for lp in raw_probs] if raw_probs else None
+                probs_out = [float(np.exp(lp)) for lp in raw_probs] if raw_probs else None
 
                 # Build the ApiReturn object
                 gen_obj = ApiReturn(

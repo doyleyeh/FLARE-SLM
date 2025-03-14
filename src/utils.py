@@ -256,7 +256,7 @@ def HFmodel_call(*args, **kwargs):
     temperature = kwargs.get('temperature', 0.0)
     top_p = kwargs.get('top_p', 1.0)
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
-    return_logprobs = kwargs.get('logprobs', 0)  # If >0, collect token-level data
+    return_logprobs = kwargs.get('logprobs', 1)  # If >0, collect token-level data
     if temperature > 0.0:
         do_sample = True
     else:
