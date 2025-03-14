@@ -87,122 +87,8 @@ class Utils:
         return False
 
 
-# class NoKeyAvailable(Exception):
-#     pass
 
 
-# def retry_with_exponential_backoff(
-#     func,
-#     max_reqs_per_min: int = 0,
-#     initial_delay: float = 1,
-#     exponential_base: float = 2,
-#     jitter: bool = True,
-#     max_retries: int = 5,
-#     errors_to_catch: tuple = (openai.error.RateLimitError, openai.error.ServiceUnavailableError, openai.error.APIError, openai.error.Timeout, NoKeyAvailable),
-#     errors_to_raise: tuple = (openai.error.APIConnectionError, openai.error.InvalidRequestError, openai.error.AuthenticationError),
-# ):
-#     """Retry a function with exponential backoff."""
-#     def wrapper(*args, **kwargs):
-#         # initialize variables
-#         is_code_model = Utils.is_chat(kwargs['model'])
-#         mrpm = max_reqs_per_min
-#         mrpm = mrpm or (15 if is_code_model else 1000)
-#         const_delay = 60 / mrpm
-#         delay = initial_delay
-#         num_retries = 0
-
-#         # loop until a successful response or max_retries is hit or an exception is raised
-#         while True:
-#             # initialize key-related variables
-#             api_key = get_key_func = return_key_func = None
-#             forbid_key = False
-
-#             try:
-#                 # get key
-#                 _kwargs = copy.deepcopy(kwargs)
-#                 if 'api_key' in kwargs:
-#                     ori_api_key = kwargs['api_key']
-#                     if type(ori_api_key) is tuple:  # get a key through a call
-#                         get_key_func, return_key_func = ori_api_key
-#                         api_key = get_key_func()
-#                     else:  # a specified key
-#                         api_key = ori_api_key or os.getenv('OPENAI_API_KEY')
-#                     _kwargs['api_key'] = api_key
-
-#                 # query API
-#                 start_t = time.time()
-#                 logging.info(f'API call start: {_kwargs.get("api_key", "")[-5:]}')
-#                 results = func(*args, **_kwargs)
-#                 logging.info(f'API call end: {_kwargs.get("api_key", "")[-5:]}')
-#                 return results
-
-#             # retry on specific errors
-#             except errors_to_catch as e:
-#                 # check if the key is useless
-#                 if hasattr(e, 'json_body') and e.json_body is not None and 'error' in e.json_body and 'type' in e.json_body['error'] and e.json_body['error']['type'] == 'insufficient_quota':  # quota error
-#                     logging.info(f'NO QUOTA: {api_key[-5:]}')
-#                     forbid_key = True
-#                 if hasattr(e, 'json_body') and e.json_body is not None and 'error' in e.json_body and 'type' in e.json_body['error'] and e.json_body['error']['code'] == 'account_deactivated':  # ban error
-#                     logging.info(f'BAN: {api_key[-5:]}')
-#                     forbid_key = True
-
-#                 # check num of retries
-#                 num_retries += 1
-#                 if num_retries > max_retries:
-#                     raise Exception(f'maximum number of retries ({max_retries}) exceeded.')
-
-#                 # incremental delay
-#                 delay *= exponential_base * (1 + jitter * random.random())
-#                 logging.info(f'retry on {e}, sleep for {const_delay + delay}')
-#                 time.sleep(const_delay + delay)
-
-#             # raise on specific errors
-#             except errors_to_raise as e:
-#                 raise e
-
-#             # raise exceptions for any errors not specified
-#             except Exception as e:
-#                 raise e
-
-#             finally:  # return key if necessary
-#                 if api_key is not None and return_key_func is not None:
-#                     end_t = time.time()
-#                     return_key_func(api_key, time_spent=end_t - start_t, forbid=forbid_key)
-
-#     return wrapper
-
-
-# async def async_chatgpt(
-#     *args,
-#     messages: List[List[Dict[str, Any]]],
-#     **kwargs,
-# ) -> List[str]:
-#     async_responses = [
-#         openai.ChatCompletion.acreate(
-#             *args,
-#             messages=x,
-#             **kwargs,
-#         )
-#         for x in messages
-#     ]
-#     return await asyncio.gather(*async_responses)
-
-
-# @retry_with_exponential_backoff
-# def openai_api_call(*args, **kwargs):
-#     model = kwargs['model']
-#     is_chat_model = Utils.is_chat(model)
-#     if is_chat_model:
-#         if len(kwargs['messages']) <= 0:
-#             return []
-#         if type(kwargs['messages'][0]) is list:  # batch request
-#             return asyncio.run(async_chatgpt(*args, **kwargs))
-#         else:
-#             return openai.ChatCompletion.create(*args, **kwargs)
-#     else:
-#         return openai.Completion.create(*args, **kwargs)
-    
-############################################################################################################
 
 # Define a function to dynamically load the correct model
 _modelcache = {}
@@ -231,10 +117,9 @@ def load_model_and_tokenizer(model_name):
     if tokenizer.pad_token_id is None:
         # fallback if eos_token_id is also None
         tokenizer.pad_token_id = 0
-        
     if torch.cuda.is_available():
-        model.to("cuda")
         model = torch.nn.DataParallel(model)
+        model.to("cuda")
     
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
@@ -507,3 +392,79 @@ def HFmodel_call(*args, **kwargs):
         }
     }
     return response
+
+
+
+if __name__ == '__main__':
+    # Simple prompt completion
+    response = HFmodel_call(
+        prompt="Explain the theory of relativity in simple terms:",       # Single-string prompt
+        model="llama3.1-8b",         # Which model to use (from your defined mappings)
+        max_tokens=128                # Limit generation length
+    )
+
+    # Print the result
+    print("Response object:\n", response)
+    print("\nGenerated text:\n", response["choices"][0]["text"])
+    print("########################################################")
+
+    # ##########################
+    # # Chat-style completion
+    # messages = [
+    #     {"role": "system", "content": "You are a friendly, helpful AI assistant."},
+    #     {"role": "user", "content": "Hello! How are you today?"}
+    # ]
+
+    # response = HFmodel_call(
+    #     model="llama3.1-8b",
+    #     messages=messages,    # Provide messages instead of a direct 'prompt'
+    #     max_tokens=60
+    # )
+    # print("Response object:\n", response)
+    # print("Chat response:\n", response["choices"][0]["text"])
+    ###################################
+    # Advanced usage with logprobs
+    response = HFmodel_call(
+        model="llama3.1-8b",
+        prompt="Explain the theory of relativity in simple terms:",
+        max_tokens=100,
+        temperature=0,       # Sampling temperature
+        top_p=1.0,             # Top-p nucleus sampling
+        frequency_penalty=0.5, # Apply frequency penalty (OpenAI-like)
+        echo=True,             # Include the prompt in the returned text
+        logprobs=1             # Return token-level logprobs
+    )
+    print("Response object:\n", response)
+    print("Generated text (including prompt):\n", response["choices"][0]["text"])
+
+    # If logprobs=1, you can inspect the tokens and their log probabilities:
+    log_probs_info = response["choices"][0]["logprobs"]
+    print("Tokens:", log_probs_info["tokens"])
+    print("Token logprobs:", log_probs_info["token_logprobs"])
+    print("Text offsets:", log_probs_info["text_offset"])
+    print("########################################################")
+    ##############################
+    # Multiple prompts
+    prompts = [
+        "Write a short poem about the sunrise.",
+        "What is the capital of France?"
+    ]
+
+    response = HFmodel_call(
+        prompt=prompts,       # List of multiple prompts
+        model="llama3.1-8b",
+        max_tokens=30
+    )
+
+    # Each prompt has its own choice object
+    for idx, choice in enumerate(response["choices"]):
+        print(f"Prompt {idx+1}: {prompts[idx]}")
+        print("Completion:", choice["text"])
+        print("Finish reason:", choice["finish_reason"])
+        print("-"*40)
+
+
+    print("Usage stats:")
+    print("Prompt tokens used:", response["usage"]["prompt_tokens"])
+    print("Completion tokens used:", response["usage"]["completion_tokens"])
+    print("Total tokens used:", response["usage"]["total_tokens"])
