@@ -622,6 +622,10 @@ class ApiReturn:
         self.probs = probs
         self.offsets = offsets
         if self.has_tokens:
+            if probs is None:
+                print('probs is None###########')
+            if offsets is None:
+                print('offsets is None############')
             assert len(tokens) == len(probs) == len(offsets)
 
         self.finish_reason = finish_reason

@@ -298,34 +298,16 @@ class QueryAgent:
                 top_p=self.top_p,
                 max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
-                logprobs=1,
+                logprobs=0,
             )
             generations = []
-            for i, r in enumerate(responses["choices"]):
-                text_out = r["text"]
-                finish_reason = r.get("finish_reason", "stop")
-
-                # If we have logprobs, you can parse them here:
-                if "logprobs" in r:
-                    tokens = r["logprobs"]["tokens"]
-                    # might do something to get numeric values for probs
-                    # or skip if you just want them as None
-                    # For example:
-                    raw_probs = r["logprobs"]["token_logprobs"]  # maybe a list of floats
-                    tokens_out = tokens
-                    probs_out = [float(lp) for lp in raw_probs]  # or do math on them
-                    offsets_out = None  # you can skip
-                else:
-                    tokens_out = None
-                    probs_out = None
-                    offsets_out = None
+            for i, choice_dict in enumerate(responses["choices"]):
+                text_out = choice_dict["text"]
+                finish_reason = choice_dict.get("finish_reason", "stop")
 
                 gen_obj = ApiReturn(
                     prompt=prompts_to_issue[i] if i < len(prompts_to_issue) else "",
                     text=text_out,
-                    tokens=tokens_out,
-                    probs=probs_out,
-                    offsets=offsets_out,
                     finish_reason=finish_reason,
                     model=responses["model"],
                     skip_len=0
@@ -390,8 +372,14 @@ class QueryAgent:
                     skip_len = len(prompts_to_issue[i])  # or some other measure if you prefer
 
                 # Convert logprobs from log-space if you want probabilities, or just store them as-is:
-                probs_out = [float(np.exp(lp)) for lp in raw_probs] if raw_probs else None
-
+                # probs_out = [float(np.exp(lp)) for lp in raw_probs] if raw_probs else None
+                if raw_probs:
+                    probs_out = [float(np.exp(lp)) for lp in raw_probs]
+                else:
+                    print(type(raw_probs))
+                    print(type(tokens_out))
+                    print(type(offsets_out))
+                    assert tokens_out is None, "If tokens are present, probs should be too"
                 # Build the ApiReturn object
                 gen_obj = ApiReturn(
                     prompt=prompts_to_issue[i],
