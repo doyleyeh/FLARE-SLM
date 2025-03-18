@@ -622,11 +622,12 @@ class ApiReturn:
         self.probs = probs
         self.offsets = offsets
         if self.has_tokens:
-            if probs is None:
-                print('probs is None###########')
-            if offsets is None:
-                print('offsets is None############')
-            assert len(tokens) == len(probs) == len(offsets)
+            if (probs is None) or (offsets is None) or (len(tokens)!=len(probs)) or (len(tokens)!=len(offsets)):
+                print('Warning: assertion might be triggered##############')
+                print('tokens:',type(tokens), tokens, len(tokens))
+                print('probs:',type(probs), probs, len(probs))
+                print('offsets:',type(offsets), offsets, len(offsets))
+            assert len(tokens) == len(probs) == len(offsets), f'tokenslen: {len(tokens)}, probslen: {len(probs)}, offsetslen: {len(offsets)}'
 
         self.finish_reason = finish_reason
         if self.finish_reason is None:

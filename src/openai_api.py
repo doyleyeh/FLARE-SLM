@@ -230,12 +230,12 @@ class QueryAgent:
                 params['max_tokens'] = max(2, params['max_tokens'])  # TODO: OPT doesn't have this bug, but openai returns nothing if set to 1
 
 
-        # # logit bias
-        # logit_bias = dict()
-        # if force_generate:
-        #     logit_bias={f'{force_generate[0]}': force_generate[1]}
-        # elif forbid_generate:
-        #     logit_bias={f'{forbid_generate[0]}': -100}
+        # logit bias
+        logit_bias = dict()
+        if force_generate:
+            logit_bias={f'{force_generate[0]}': force_generate[1]}
+        elif forbid_generate:
+            logit_bias={f'{forbid_generate[0]}': -100}
 
         # format to get the final prompt
         prompts: List[Tuple[str, int, List[str]]] = [q.format(use_ctx=self.use_ctx, is_chat_model=is_chat_model, api_key=api_key) for q in queries]
@@ -257,16 +257,16 @@ class QueryAgent:
             for i in range(len(prompts_to_issue)):
                 prompts_to_issue[i] += prefixes[i][0]
 
-        # # add penalty
-        # if self.frequency_penalty_in_prompt:
-        #     assert len(queries) == 1, 'batching is not supported'
-        #     current_cases: List[str] = [q[-l:] if l else '' for q, l, _ in prompts]  # only use the generated content
-        #     counter = Counter(sum(self.tokenizer(current_cases)['input_ids'], []))
-        #     tokid2count: Dict[int, int] = dict(sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:200])  # penalize at most 200 tokens
-        #     for tokid, count in tokid2count.items():
-        #         if tokid not in logit_bias:
-        #             logit_bias[str(tokid)] = 0
-        #         logit_bias[str(tokid)] -= self.frequency_penalty_in_prompt * count
+        # add penalty
+        if self.frequency_penalty_in_prompt:
+            assert len(queries) == 1, 'batching is not supported'
+            current_cases: List[str] = [q[-l:] if l else '' for q, l, _ in prompts]  # only use the generated content
+            counter = Counter(sum(self.tokenizer(current_cases)['input_ids'], []))
+            tokid2count: Dict[int, int] = dict(sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:200])  # penalize at most 200 tokens
+            for tokid, count in tokid2count.items():
+                if tokid not in logit_bias:
+                    logit_bias[str(tokid)] = 0
+                logit_bias[str(tokid)] -= self.frequency_penalty_in_prompt * count
 
         # API call
         if is_chat_model:
@@ -372,14 +372,17 @@ class QueryAgent:
                     skip_len = len(prompts_to_issue[i])  # or some other measure if you prefer
 
                 # Convert logprobs from log-space if you want probabilities, or just store them as-is:
-                # probs_out = [float(np.exp(lp)) for lp in raw_probs] if raw_probs else None
-                if raw_probs:
-                    probs_out = [float(np.exp(lp)) for lp in raw_probs]
-                else:
-                    print(type(raw_probs))
-                    print(type(tokens_out))
-                    print(type(offsets_out))
-                    assert tokens_out is None, "If tokens are present, probs should be too"
+                probs_out = [float(np.exp(lp)) for lp in raw_probs] if isinstance(raw_probs, list) else None
+                # if isinstance(raw_probs, list):
+                #     probs_out = [float(np.exp(lp)) for lp in raw_probs]
+                # else:
+                #     print("raw_probs:",type(raw_probs), raw_probs)
+                #     print("tokens_out:",type(tokens_out), tokens_out)
+                #     print("offsets_out:",type(offsets_out), offsets_out)
+                #     print("probs_out:",type(probs_out), probs_out)
+                #     print("Response Object:",responses)
+                #     print("Current Choice Dict:",choice_dict)
+                    # assert tokens_out is None, "If tokens are present, probs should be too"
                 # Build the ApiReturn object
                 gen_obj = ApiReturn(
                     prompt=prompts_to_issue[i],

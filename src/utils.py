@@ -71,6 +71,32 @@ class FrequencyPenaltyProcessor(LogitsProcessor):
 
         return scores
 
+class LogitsBiasProcessor(LogitsProcessor):
+    """
+    Scales (multiplies) logits for specified tokens by a given factor, 
+    then clamps them to a min of 0.
+
+    For example, if token_ids_to_bias = { (1234,): 0.5, (98, 99): 2.0 },
+    then token 1234 is multiplied by 0.5, and tokens 98, 99 are 
+    multiplied by 2.0 each step, clamped at zero.
+
+    Note: The keys are tuples of token IDs to handle multi-token phrases,
+    but typically you might just pass single-token tuples.
+    """
+    def __init__(self, token_ids_to_bias: dict):
+        super().__init__()
+        self.token_ids_to_bias = token_ids_to_bias
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # scores shape: [batch_size, vocab_size]
+        for token_ids, bias_factor in self.token_ids_to_bias.items():
+            # For each token in the tuple:
+            for tid in token_ids:
+                # Multiply the original logit by `bias_factor` and clamp at >= 0
+                scores[:, tid] = torch.clamp(scores[:, tid] * bias_factor, min=0.0)
+        return scores
+
+
 class Utils:
     punctuations = set(string.punctuation)
 
@@ -254,6 +280,8 @@ def HFmodel_call(*args, **kwargs):
       - stop (str or List[str]): stop string(s) for post-hoc truncation
       - echo (bool)
       - logprobs (int) => if > 0, return token-level info
+      - logit_bias (Dict[str, float])
+        e.g. {"foo": 0.5, "bar": 2.0}
 
     Returns an OpenAI-style dict with "model", "choices", "usage".
     """
@@ -264,9 +292,11 @@ def HFmodel_call(*args, **kwargs):
     max_tokens = kwargs.get('max_tokens', 128)
     temperature = kwargs.get('temperature', 0.0)
     top_p = kwargs.get('top_p', 1.0)
-    freq_penalty = kwargs.get('frequency_penalty', 0.0)
+    freq_penalty = kwargs.get('', 0.0)
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
+    logit_bias = kwargs.get('logit_bias', None)
+
 
     # Convert a single string stop to list
     if isinstance(stop, str):
@@ -278,7 +308,7 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
@@ -318,9 +348,24 @@ def HFmodel_call(*args, **kwargs):
 
     # 3) Build logits processors
     logits_processors = LogitsProcessorList()
+    # 3a) If a frequency penalty is specified, add it
     if freq_penalty > 0.0:
         freq_proc = FrequencyPenaltyProcessor(penalty=freq_penalty)
         logits_processors.append(freq_proc)
+
+    # 3b) If a logit_bias dict is provided, construct LogitsBiasProcessor
+    #     Here we map each word -> factor, by encoding the word to token IDs.
+    if logit_bias is not None:
+        token_ids_to_bias = {}
+        for word, factor in logit_bias.items():
+            # Convert the word to a tuple of token ids
+            encoded = tokenizer.encode(word, add_special_tokens=False)
+            token_ids = tuple(encoded)
+            token_ids_to_bias[token_ids] = factor
+
+        bias_proc = LogitsBiasProcessor(token_ids_to_bias)
+        logits_processors.append(bias_proc)
+    
 
     choices = []
     total_prompt_tokens = 0
@@ -347,7 +392,6 @@ def HFmodel_call(*args, **kwargs):
                 do_sample=do_sample,
                 temperature=temperature if do_sample else None,
                 top_p=top_p,
-                repetition_penalty=1.0,
                 logits_processor=logits_processors,
                 return_dict_in_generate=True,
                 output_scores=True,

@@ -126,7 +126,89 @@ def HFmodel_call(*args, **kwargs):
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
+    # We'll define a helper to re-encode and align logprobs with tokens
+    def align_logprobs(text_str, all_ids, all_lps, is_echo):
+        """
+        text_str: the final text portion we want logprobs for
+        all_ids: the newly generated token ids (in sequence)
+        all_lps: the logprobs for those newly generated token ids
+        is_echo: if True, we need to include prompt tokens with None logprobs
+        """
+        # If echo=True, text_str = (prompt + truncated_gen_text)
+        # If echo=False, text_str = truncated_gen_text
+        # We re-encode text_str to determine final tokens.
+        reenc = tokenizer(text_str, return_offsets_mapping=True, add_special_tokens=False)
+        reenc_ids = reenc["input_ids"]
+        reenc_offsets = reenc["offset_mapping"]
 
+        matched_strs = []
+        matched_lps = []
+        matched_offsets = []
+
+        # Pointers
+        p_reenc = 0
+        gen_consumed = 0
+
+        # If echo=True, the first `prompt_len` tokens in the final text are from prompt => None logprobs
+        # Then the subsequent tokens come from all_ids/all_lps
+        if is_echo:
+            # Re-encode the prompt separately, just to see how many tokens are in the prompt
+            prompt_part_ids = tokenizer.decode(input_ids[0], skip_special_tokens=False)
+            prompt_enc2 = tokenizer(prompt_part_ids, add_special_tokens=False)
+            prompt_num_toks = len(prompt_enc2["input_ids"])
+
+            # We'll iterate through all re-encoded tokens and set None for the prompt portion
+            # Then fill logprobs for the generated portion
+            while p_reenc < len(reenc_ids):
+                token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
+                start_char = reenc_offsets[p_reenc][0]
+
+                if p_reenc < prompt_num_toks:
+                    # This is part of the prompt => logprob=None
+                    matched_strs.append(token_txt)
+                    matched_lps.append(None)
+                    matched_offsets.append(start_char)
+                else:
+                    # Generated portion
+                    if gen_consumed < len(all_ids):
+                        # If it matches the ID, assign the logprob
+                        if reenc_ids[p_reenc] == all_ids[gen_consumed]:
+                            matched_strs.append(token_txt)
+                            matched_lps.append(all_lps[gen_consumed])
+                            matched_offsets.append(start_char)
+                            gen_consumed += 1
+                        else:
+                            # If mismatch, just skip forward
+                            # (This can happen if the tokenizer merges or splits differently.)
+                            matched_strs.append(token_txt)
+                            matched_lps.append(None)
+                            matched_offsets.append(start_char)
+                    else:
+                        # No more generated logprobs left
+                        matched_strs.append(token_txt)
+                        matched_lps.append(None)
+                        matched_offsets.append(start_char)
+
+                p_reenc += 1
+
+        else:
+            # echo=False => we only have the newly generated portion
+            while p_reenc < len(reenc_ids) and gen_consumed < len(all_ids):
+                token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
+                start_char = reenc_offsets[p_reenc][0]
+
+                # If the ID matches, assign the logprob
+                if reenc_ids[p_reenc] == all_ids[gen_consumed]:
+                    matched_strs.append(token_txt)
+                    matched_lps.append(all_lps[gen_consumed])
+                    matched_offsets.append(start_char)
+                    gen_consumed += 1
+                    p_reenc += 1
+                else:
+                    # If mismatch, skip forward in reenc
+                    p_reenc += 1
+
+        return matched_strs, matched_lps, matched_offsets
     # Convert a single string stop to list
     if isinstance(stop, str):
         stop = [stop]
@@ -281,90 +363,6 @@ def HFmodel_call(*args, **kwargs):
                 step_logprobs = torch.log_softmax(logits_i[0], dim=-1)  # [vocab_size]
                 tok_id = gen_token_ids[i]
                 new_token_logprobs.append(float(step_logprobs[tok_id].item()))
-
-            # We'll define a helper to re-encode and align logprobs with tokens
-            def align_logprobs(text_str, all_ids, all_lps, is_echo):
-                """
-                text_str: the final text portion we want logprobs for
-                all_ids: the newly generated token ids (in sequence)
-                all_lps: the logprobs for those newly generated token ids
-                is_echo: if True, we need to include prompt tokens with None logprobs
-                """
-                # If echo=True, text_str = (prompt + truncated_gen_text)
-                # If echo=False, text_str = truncated_gen_text
-                # We re-encode text_str to determine final tokens.
-                reenc = tokenizer(text_str, return_offsets_mapping=True, add_special_tokens=False)
-                reenc_ids = reenc["input_ids"]
-                reenc_offsets = reenc["offset_mapping"]
-
-                matched_strs = []
-                matched_lps = []
-                matched_offsets = []
-
-                # Pointers
-                p_reenc = 0
-                gen_consumed = 0
-
-                # If echo=True, the first `prompt_len` tokens in the final text are from prompt => None logprobs
-                # Then the subsequent tokens come from all_ids/all_lps
-                if is_echo:
-                    # Re-encode the prompt separately, just to see how many tokens are in the prompt
-                    prompt_part_ids = tokenizer.decode(input_ids[0], skip_special_tokens=False)
-                    prompt_enc2 = tokenizer(prompt_part_ids, add_special_tokens=False)
-                    prompt_num_toks = len(prompt_enc2["input_ids"])
-
-                    # We'll iterate through all re-encoded tokens and set None for the prompt portion
-                    # Then fill logprobs for the generated portion
-                    while p_reenc < len(reenc_ids):
-                        token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
-                        start_char = reenc_offsets[p_reenc][0]
-
-                        if p_reenc < prompt_num_toks:
-                            # This is part of the prompt => logprob=None
-                            matched_strs.append(token_txt)
-                            matched_lps.append(None)
-                            matched_offsets.append(start_char)
-                        else:
-                            # Generated portion
-                            if gen_consumed < len(all_ids):
-                                # If it matches the ID, assign the logprob
-                                if reenc_ids[p_reenc] == all_ids[gen_consumed]:
-                                    matched_strs.append(token_txt)
-                                    matched_lps.append(all_lps[gen_consumed])
-                                    matched_offsets.append(start_char)
-                                    gen_consumed += 1
-                                else:
-                                    # If mismatch, just skip forward
-                                    # (This can happen if the tokenizer merges or splits differently.)
-                                    matched_strs.append(token_txt)
-                                    matched_lps.append(None)
-                                    matched_offsets.append(start_char)
-                            else:
-                                # No more generated logprobs left
-                                matched_strs.append(token_txt)
-                                matched_lps.append(None)
-                                matched_offsets.append(start_char)
-
-                        p_reenc += 1
-
-                else:
-                    # echo=False => we only have the newly generated portion
-                    while p_reenc < len(reenc_ids) and gen_consumed < len(all_ids):
-                        token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
-                        start_char = reenc_offsets[p_reenc][0]
-
-                        # If the ID matches, assign the logprob
-                        if reenc_ids[p_reenc] == all_ids[gen_consumed]:
-                            matched_strs.append(token_txt)
-                            matched_lps.append(all_lps[gen_consumed])
-                            matched_offsets.append(start_char)
-                            gen_consumed += 1
-                            p_reenc += 1
-                        else:
-                            # If mismatch, skip forward in reenc
-                            p_reenc += 1
-
-                return matched_strs, matched_lps, matched_offsets
 
             final_strs, final_lps, final_offsets = align_logprobs(
                 final_text, gen_token_ids, new_token_logprobs, echo

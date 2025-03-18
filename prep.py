@@ -14,7 +14,7 @@ import torch
 from beir.datasets.data_loader import GenericDataLoader
 from src.datasets import WikiMultiHopQA, WikiAsp, ASQA
 from src.utils import Utils
-
+from collections import Counter
 
 def eval(
     model: str,
@@ -91,6 +91,60 @@ def eval(
                 final_ans.append(find.group(1))
                 break
         return ' '.join(final_ans).strip()
+    
+    def self_consistency(examples, anchor_text=[]):
+        """
+        Perform a 'self-consistency' merge of multiple example predictions for the same question.
+
+        :param examples: A list of dictionaries. Each dict must contain the keys:
+                        - "qid" (or "id") - same question ID for all entries
+                        - "output" - the full predicted text
+                        - optionally "trace" and "retrieval" logs
+        :param anchor_text: A list of regex patterns to extract the final answer from the raw text.
+        :return: A single merged example (dict) with a "consensus" final answer in "output".
+        """
+
+        # 1) Use the first example as a base for all meta information (qid, question, etc.)
+        merged_example = examples[0].copy()
+
+        # 2) Combine retrieval logs if present
+        merged_retrieval = []
+        for ex in examples:
+            if 'retrieval' in ex and ex['retrieval'] is not None:
+                merged_retrieval.extend(ex['retrieval'])
+        merged_example['retrieval'] = merged_retrieval
+
+        # 3) Combine chain-of-thought traces if present
+        merged_trace = []
+        for ex in examples:
+            if 'trace' in ex and ex['trace'] is not None:
+                merged_trace.extend(ex['trace'])
+        merged_example['trace'] = merged_trace
+
+        # 4) Majority-vote for the final answer
+        #    We'll extract an answer from each example using the anchor_text regex patterns
+        #    (or just use the raw 'output' if no anchor_text was provided).
+        answers = []
+        for ex in examples:
+            raw_pred = ex['output']
+            extracted_ans = None
+            if anchor_text:
+                for pattern in anchor_text:
+                    m = re.search(pattern, raw_pred)
+                    if m:
+                        extracted_ans = m.group(1)
+                        break
+            # Fall back to the entire output if no anchor matched
+            final_answer = extracted_ans if extracted_ans else raw_pred.strip()
+            answers.append(final_answer)
+
+        # Count frequency of each distinct answer
+        counter = Counter(answers)
+        # Get the most common answer and set it as the merged output
+        best_answer, _ = counter.most_common(1)[0]
+        merged_example['output'] = best_answer
+
+        return merged_example
 
     metric_func = evaluate.load('rouge')
 
@@ -373,7 +427,8 @@ if __name__ == '__main__':
                 dataset=dataset,
                 jsonl_files=jsonl_files,
                 anchor_text=['answer is (.*)'],
-                beir_dir='data/2wikimultihopqa/dev_beir')
+                beir_dir='data/2wikimultihopqa')
+                # beir_dir='data/2wikimultihopqa/dev_beir')
         elif dataset == 'wikiasp':
             eval(model=args.model,
                 dataset=dataset,
