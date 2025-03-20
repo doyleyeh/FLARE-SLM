@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-debug=true
-# debug=false
+# debug=true
+debug=false
 
 source keys.sh
 num_keys=${#keys[@]}
