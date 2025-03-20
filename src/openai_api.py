@@ -18,6 +18,7 @@ from .templates import CtxPrompt, ApiReturn, RetrievalInstruction
 from .datasets import StrategyQA, WikiMultiHopQA, WikiAsp, ASQA
 # from .utils import Utils, NoKeyAvailable, openai_api_call, HFmodel_call
 from .utils import Utils, HFmodel_call, load_model_and_tokenizer
+import pdb
 logging.basicConfig(level=logging.INFO)
 
 
@@ -84,6 +85,7 @@ class QueryAgent:
     def __init__(
         self,
         model: str = 'llama3.1-8b',
+        # max_generation_len: int = 256,
         max_generation_len: int = 128,
         temperature: float = 0,
         retrieval_kwargs: Dict[str, Any] = {},
@@ -91,7 +93,6 @@ class QueryAgent:
     ):
         self.model = model
         self.tokenizer = tokenizer
-        # _, self.tokenizer = load_model_and_tokenizer(model)
 
         # generation args
         self.final_stop_sym = retrieval_kwargs.get('final_stop_sym', '\n\n')
@@ -229,6 +230,9 @@ class QueryAgent:
             if 'max_tokens' in params:
                 params['max_tokens'] = max(2, params['max_tokens'])  # TODO: OPT doesn't have this bug, but openai returns nothing if set to 1
 
+        print('PDB debug for complete begin openai.api (check )')
+        # pdb.set_trace()
+
 
         # logit bias
         logit_bias = dict()
@@ -251,12 +255,15 @@ class QueryAgent:
             to_gen_len = set(map(itemgetter(1), prefixes))
             if None in to_gen_len:  # generate follow original settings
                 pass
-            else:  # generate `to_gen_len` tokens
+            # else:  # generate `to_gen_len` tokens
                 params['max_tokens'] = max(to_gen_len)
             assert len(prompts_to_issue) == len(prefixes)
             for i in range(len(prompts_to_issue)):
                 prompts_to_issue[i] += prefixes[i][0]
 
+        print('PDB debug for complete function after get prefix')
+        # pdb.set_trace()
+        
         # add penalty
         if self.frequency_penalty_in_prompt:
             assert len(queries) == 1, 'batching is not supported'
@@ -299,6 +306,7 @@ class QueryAgent:
                 max_tokens=params.get('max_tokens', 128),
                 frequency_penalty=self.frequency_penalty,
                 logprobs=0,
+                stop = params.get('stop', None)
             )
             generations = []
             for i, choice_dict in enumerate(responses["choices"]):
@@ -344,6 +352,7 @@ class QueryAgent:
                 frequency_penalty=self.frequency_penalty,
                 logprobs=1,
                 echo=echo,
+                stop = params.get('stop', None)
             )
             # generations = []
             generations: List[ApiReturn] = []
@@ -421,6 +430,8 @@ class QueryAgent:
         if self.use_retrieval:
             return self.ret_prompt(queries, api_key=api_key)
         else:  # directly generate all without gold context
+            print('PDB debug for ret_prompt in  if self.use_retrieval:(call complete)')
+            # pdb.set_trace()
             ars = self.complete(
                 queries,
                 params={'max_tokens': self.max_generation_len, 'stop': self.final_stop_sym},
@@ -469,6 +480,8 @@ class QueryAgent:
                 # check ctx and kept ctx
                 for i, q in queries:
                     q.check_ctx(method=self.ctx_increase)
+                print('PDB debug for ret_prompt in check ctx and kept ctx(in  if self.look_ahead_steps) (call complete)')
+                # pdb.set_trace()
                 apireturns = self.complete(
                     list(map(itemgetter(1), queries)),
                     params={'max_tokens': self.look_ahead_steps, 'stop': self.final_stop_sym},
@@ -483,6 +496,8 @@ class QueryAgent:
                     n_gen_char_in_prompt=q.gen_len,
                     api_key=api_key) for ar, (_, q) in zip(apireturns, queries)]
             elif self.look_ahead_boundary:  # generate tokens until boundary for retrieval
+                print('PDB debug for ret_prompt in elif self.look_ahead_boundary (call complete)')
+                # pdb.set_trace()
                 apireturns = self.complete(
                     list(map(itemgetter(1), queries)),
                     params={'max_tokens': self.max_generation_len, 'stop': self.look_ahead_boundary},
@@ -530,6 +545,8 @@ class QueryAgent:
 
             # complete
             if self.ret_frequency:
+                print('PDB debug for ret_prompt in comoplete section ( if self.ret_frequency:) (call complete)')
+                # pdb.set_trace()
                 apireturns = self.complete(
                     list(map(itemgetter(1), queries)),
                     params={'max_tokens': min(self.max_generation_len - max_gen_len, self.ret_frequency), 'stop': self.final_stop_sym},
@@ -550,6 +567,8 @@ class QueryAgent:
                     ar.truncate_at_substring(self.final_stop_sym)
             elif self.ret_boundary:
                 if self.forbid_generate_step and self.retrieval_trigers and step_ind > 0:  # start from the second step to forbid the force_generate token
+                    print('PDB debug for ret_prompt in comoplete section (self.ret_boundary) (call complete)')
+                    # pdb.set_trace()
                     _apireturns = self.complete(
                         list(map(itemgetter(1), queries)),
                         params={'max_tokens': min(self.max_generation_len - max_gen_len, self.forbid_generate_step), 'stop': self.final_stop_sym},
@@ -563,6 +582,8 @@ class QueryAgent:
                             final_queries[i] = query
                             traces[i].append((ar.prompt, cont))
                             query.add_generation(cont)
+                print('PDB debug for ret_prompt in comoplete section (self.ret_boundary) (call complete)(second)')
+                # pdb.set_trace()
                 apireturns = self.complete(
                     list(map(itemgetter(1), queries)),
                     params={'max_tokens': self.max_generation_len - max_gen_len, 'stop': self.ret_boundary},
@@ -641,9 +662,14 @@ class QueryAgent:
             generate_queries = new_generate_queries
             step_ind += 1
 
+            print('PDB debug for ret_prompt after while loop')
+            # pdb.set_trace()
+
         if self.regenerate_at_end:  # regenerate given retrieval results
             for query in final_queries:
                 query.reset_generation()
+            print('PDB debug for ret_prompt in if self.regenerate_at_end(call complete)')
+            # pdb.set_trace()
             apireturns = self.complete(
                 final_queries,
                 params={'max_tokens': self.max_generation_len, 'stop': self.final_stop_sym},
@@ -653,7 +679,6 @@ class QueryAgent:
                 final_outputs[i] = cont
                 final_probs[i] = ar.token_probs
                 traces[i].append((ar.prompt, cont))
-
         return final_outputs, final_probs, final_retrievals, traces
 
 
@@ -793,6 +818,7 @@ if __name__ == '__main__':
     retrieval_kwargs['retriever'] = retriever
     retrieval_kwargs['debug'] = args.debug
     retrieval_kwargs['final_stop_sym'] = args.final_stop_sym or ('!@#$%^&*()\n\n)(*&^%$#@!' if Utils.no_stop(model=args.model) else '\n\n')
+    # retrieval_kwargs['final_stop_sym'] = args.final_stop_sym or ('!@#$%^&*()\n\n)(*&^%$#@!' if Utils.no_stop(model=args.model) else '####')
 
     logging.info('=== retrieval kwargs ===')
     logging.info(retrieval_kwargs)

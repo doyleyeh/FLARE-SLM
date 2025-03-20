@@ -10,6 +10,7 @@ import openai
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList
+import pdb
 
 logging.basicConfig(level=logging.INFO)
 
@@ -261,7 +262,7 @@ def load_model_and_tokenizer(model_name):
         tokenizer.pad_token_id = 0
         
     if torch.cuda.is_available():
-        model.to("cuda")
+        model.to("cuda:1")
         model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
@@ -289,7 +290,7 @@ def HFmodel_call(*args, **kwargs):
     echo = kwargs.get('echo', False)
     messages = kwargs.get('messages', None)
     prompt = kwargs.get('prompt', "")
-    max_tokens = kwargs.get('max_tokens', 128)
+    max_tokens = kwargs.get('max_tokens', 256)
     temperature = kwargs.get('temperature', 0.0)
     top_p = kwargs.get('top_p', 1.0)
     freq_penalty = kwargs.get('', 0.0)
@@ -308,7 +309,7 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
@@ -408,6 +409,8 @@ def HFmodel_call(*args, **kwargs):
         # 6) Apply post-hoc stop logic only on the *newly generated text*,
         #    ignoring leading newlines in that portion (to handle LLaMA's \n\n).
         truncated_gen_text = gen_text
+        print('pdb debug for HFmodel_call before stop function')
+        pdb.set_trace()
         if stop:
             # We'll strip leading newlines from the generated text for matching only
             cleaned_for_stop = gen_text.lstrip("\n")
@@ -424,7 +427,8 @@ def HFmodel_call(*args, **kwargs):
                 # Map back to the original (unstripped) gen_text index
                 actual_index_in_gen_text = earliest_index + leading_removed
                 truncated_gen_text = gen_text[:actual_index_in_gen_text]
-
+        print('pdb debug for HFmodel_call after stop function')
+        pdb.set_trace()
         # 7) Combine prompt + newly generated portion if echo=True,
         #    otherwise just the truncated_gen_text.
         if echo:
@@ -586,4 +590,6 @@ def HFmodel_call(*args, **kwargs):
             "total_tokens": total_used_tokens
         }
     }
+    print('pdb debug for HFmodel_call end')
+    pdb.set_trace()
     return response

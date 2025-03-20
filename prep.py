@@ -15,6 +15,7 @@ from beir.datasets.data_loader import GenericDataLoader
 from src.datasets import WikiMultiHopQA, WikiAsp, ASQA
 from src.utils import Utils
 from collections import Counter
+import pdb
 
 def eval(
     model: str,
@@ -127,15 +128,16 @@ def eval(
         answers = []
         for ex in examples:
             raw_pred = ex['output']
-            extracted_ans = None
-            if anchor_text:
-                for pattern in anchor_text:
-                    m = re.search(pattern, raw_pred)
-                    if m:
-                        extracted_ans = m.group(1)
-                        break
-            # Fall back to the entire output if no anchor matched
-            final_answer = extracted_ans if extracted_ans else raw_pred.strip()
+            # extracted_ans = None
+            # if anchor_text:
+            #     for pattern in anchor_text:
+            #         m = re.search(pattern, raw_pred)
+            #         if m:
+            #             extracted_ans = m.group(1)
+            #             break
+            # # Fall back to the entire output if no anchor matched
+            # final_answer = extracted_ans if extracted_ans else raw_pred.strip()
+            final_answer = raw_pred.strip()
             answers.append(final_answer)
 
         # Count frequency of each distinct answer

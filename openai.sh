@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-# debug=true
-debug=false
+debug=true
+# debug=false
 
 source keys.sh
 num_keys=${#keys[@]}
@@ -15,8 +15,8 @@ config_filename="${config_filename%.*}"
 
 debug_batch_size=1
 batch_size=1
-# model=llama3.1-8b
-model=mamba2
+model=llama3.1-8b
+# model=mamba2
 temperature=0
 
 output=output/${dataset}/${model}/${config_filename}.jsonl
@@ -29,7 +29,7 @@ if [[ ${dataset} == '2wikihop' ]]; then
     index_name=wikipedia_dpr
     fewshot=8
     max_num_examples=500
-    max_generation_len=256
+    max_generation_len=512
 elif [[ ${dataset} == 'strategyqa' ]]; then
     input="--input data/strategyqa/dev_beir"
     engine=elasticsearch
@@ -67,7 +67,7 @@ fi
 
 # query api
 if [[ ${debug} == "true" ]]; then
-    python -m src.openai_api \
+    python -m pdb -m src.openai_api \
         --model ${model} \
         --dataset ${dataset} ${input} ${prompt_type} \
         --config_file ${config_file} \

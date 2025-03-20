@@ -10,6 +10,7 @@ from beir.retrieval.evaluation import EvaluateRetrieval
 from beir.retrieval.search.lexical import BM25Search
 from beir.retrieval.search.lexical.elastic_search import ElasticSearch
 from .bing import search_bing_batch
+import pdb
 
 
 def get_random_doc_id():
@@ -120,6 +121,9 @@ class BM25:
 
         docids = np.array(docids).reshape(bs, topk)  # (bs, topk)
         docs = np.array(docs).reshape(bs, topk)  # (bs, topk)
+        # print("PDB end of retrieve in retriever.py")
+        # pdb.set_trace()
+
         return docids, docs
 
 
