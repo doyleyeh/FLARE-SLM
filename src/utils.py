@@ -410,7 +410,7 @@ def HFmodel_call(*args, **kwargs):
         #    ignoring leading newlines in that portion (to handle LLaMA's \n\n).
         truncated_gen_text = gen_text
         print('pdb debug for HFmodel_call before stop function')
-        pdb.set_trace()
+        # pdb.set_trace()
         if stop:
             # We'll strip leading newlines from the generated text for matching only
             cleaned_for_stop = gen_text.lstrip("\n")
@@ -428,7 +428,7 @@ def HFmodel_call(*args, **kwargs):
                 actual_index_in_gen_text = earliest_index + leading_removed
                 truncated_gen_text = gen_text[:actual_index_in_gen_text]
         print('pdb debug for HFmodel_call after stop function')
-        pdb.set_trace()
+        # pdb.set_trace()
         # 7) Combine prompt + newly generated portion if echo=True,
         #    otherwise just the truncated_gen_text.
         if echo:
@@ -591,5 +591,5 @@ def HFmodel_call(*args, **kwargs):
         }
     }
     print('pdb debug for HFmodel_call end')
-    pdb.set_trace()
+    # pdb.set_trace()
     return response
