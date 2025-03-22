@@ -414,7 +414,7 @@ def HFmodel_call(*args, **kwargs):
         # 6) Apply post-hoc stop logic only on the *newly generated text*,
         #    ignoring leading newlines in that portion (to handle LLaMA's \n\n).
         truncated_gen_text = gen_text
-        print('pdb debug for HFmodel_call before stop function')
+        # print('pdb debug for HFmodel_call before stop function')
         # pdb.set_trace()
         if stop:
             # We'll strip leading newlines from the generated text for matching only
@@ -432,7 +432,7 @@ def HFmodel_call(*args, **kwargs):
                 # Map back to the original (unstripped) gen_text index
                 actual_index_in_gen_text = earliest_index + leading_removed
                 truncated_gen_text = gen_text[:actual_index_in_gen_text]
-        print('pdb debug for HFmodel_call after stop function')
+        # print('pdb debug for HFmodel_call after stop function')
         # pdb.set_trace()
         # 7) Combine prompt + newly generated portion if echo=True,
         #    otherwise just the truncated_gen_text.
@@ -595,6 +595,6 @@ def HFmodel_call(*args, **kwargs):
             "total_tokens": total_used_tokens
         }
     }
-    print('pdb debug for HFmodel_call end')
+    # print('pdb debug for HFmodel_call end')
     # pdb.set_trace()
     return response

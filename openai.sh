@@ -15,8 +15,8 @@ config_filename="${config_filename%.*}"
 
 debug_batch_size=1
 batch_size=1
-model=llama3.1-8b
-# model=mamba2
+# model=llama3.1-8b
+model=mamba2-i
 temperature=0
 
 output=output/${dataset}/${model}/${config_filename}.jsonl
