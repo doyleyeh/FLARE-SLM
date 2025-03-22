@@ -15,8 +15,8 @@ config_filename="${config_filename%.*}"
 
 debug_batch_size=1
 batch_size=1
-# model=llama3.1-8b
-model=mamba2
+model=llama3.1-8b
+# model=mamba2
 temperature=0
 
 output=output/${dataset}/${model}/${config_filename}.jsonl
@@ -67,14 +67,14 @@ fi
 
 # query api
 if [[ ${debug} == "true" ]]; then
-    python -m pdb -m src.openai_api \
+    python -m src.openai_api \
         --model ${model} \
         --dataset ${dataset} ${input} ${prompt_type} \
         --config_file ${config_file} \
         --fewshot ${fewshot} \
         --search_engine ${engine} \
         --index_name ${index_name} \
-        --max_num_examples 1 \
+        --max_num_examples 2 \
         --max_generation_len ${max_generation_len} \
         --batch_size ${debug_batch_size} \
         --output test.jsonl \

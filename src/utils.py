@@ -10,7 +10,7 @@ import openai
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList
-import pdb
+# import pdb
 
 logging.basicConfig(level=logging.INFO)
 
@@ -235,8 +235,13 @@ class Utils:
 _modelcache = {}
 def load_model_and_tokenizer(model_name):
     model_mapping = {
-        "llama3.1-8b": "meta-llama/Llama-3.1-8B-Instruct",
+        "llama3.1-8b-i": "meta-llama/Llama-3.1-8B-Instruct",
+        "llama3.1-8b": "meta-llama/Llama-3.1-8B",
+        "llama3.2-3b-i": "meta-llama/Llama-3.2-3B-Instruct",
+        "llama3.2-1b": "meta-llama/Llama-3.2-1B",
+        "llama3.2-1b-i": "meta-llama/Llama-3.2-1B-Instruct",
         "mamba2": "tiiuae/falcon-mamba-7b",
+        "mamba2-i": "tiiuae/Falcon3-Mamba-7B-Instruct",
         "gemma": "google/gemma-3-12b-it",
         
     }
@@ -262,7 +267,7 @@ def load_model_and_tokenizer(model_name):
         tokenizer.pad_token_id = 0
         
     if torch.cuda.is_available():
-        model.to("cuda:1")
+        model.to("cuda:3")
         model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
@@ -309,7 +314,7 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`

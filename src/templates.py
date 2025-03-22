@@ -107,7 +107,7 @@ class CtxPrompt:
             # 3) Call HFmodel_call with "messages"
             #    We pass temperature=0.0, top_p=0.0 to match old logic, but adapt as needed.
             result = HFmodel_call(
-                model='llama3.1-8b',           # or whichever local model you want
+                model='llama3.1-8b-i',           # or whichever local model you want
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=0.0,

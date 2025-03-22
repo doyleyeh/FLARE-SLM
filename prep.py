@@ -125,9 +125,8 @@ def eval(
         # 4) Majority-vote for the final answer
         #    We'll extract an answer from each example using the anchor_text regex patterns
         #    (or just use the raw 'output' if no anchor_text was provided).
-        answers = []
-        for ex in examples:
-            raw_pred = ex['output']
+        # for ex in examples:
+            # raw_pred = ex['output']
             # extracted_ans = None
             # if anchor_text:
             #     for pattern in anchor_text:
@@ -137,15 +136,18 @@ def eval(
             #             break
             # # Fall back to the entire output if no anchor matched
             # final_answer = extracted_ans if extracted_ans else raw_pred.strip()
-            final_answer = raw_pred.strip()
-            answers.append(final_answer)
+            # final_answer = raw_pred.strip()
+            # answers.append(final_answer)
 
         # Count frequency of each distinct answer
-        counter = Counter(answers)
-        # Get the most common answer and set it as the merged output
-        best_answer, _ = counter.most_common(1)[0]
-        merged_example['output'] = best_answer
+        # counter = Counter(answers)
+        # # Get the most common answer and set it as the merged output
+        # best_answer, _ = counter.most_common(1)[0]
+        # merged_example['output'] = best_answer
 
+        raw_pred = examples[0]['output']
+        final_answer = raw_pred.strip()
+        merged_example['output'] = final_answer
         return merged_example
 
     metric_func = evaluate.load('rouge')
@@ -285,6 +287,7 @@ def eval(
                 ret_covers[-1].append(len(np.intersect1d(ret_dids[:pt].reshape(-1), rel_dids)) / (len(rel_dids) or 1))
                 prev_pt = max(min(pt, ret_seq_len - 1), 0)
 
+
     if root_file:
         with open(root_file + '.merge', 'w') as fout:
             for e in consistency_examples:
@@ -407,8 +410,8 @@ if __name__ == '__main__':
     parser.add_argument('--inp', type=str, default=None, nargs='+', help='input file')
     parser.add_argument('--dataset', type=str, default='2wikihop', help='input dataset', choices=[
         'strategyqa', '2wikihop', 'wikiasp', 'asqa'])
-    parser.add_argument('--model', type=str, default='llama3.1-8b', help='model name', choices=[
-        'llama3.1-8b', 'mamba2'])
+    parser.add_argument('--model', type=str, default='llama3.1-8b-i', help='model name', choices=[
+        'llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'mamba2', 'mamba2-i'])
     parser.add_argument('--out', type=str, default=None, help='output file')
     args = parser.parse_args()
 

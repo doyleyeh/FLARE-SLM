@@ -84,7 +84,7 @@ class CustomManager(BaseManager):
 class QueryAgent:
     def __init__(
         self,
-        model: str = 'llama3.1-8b',
+        model: str = 'llama3.1-8b-i',
         # max_generation_len: int = 256,
         max_generation_len: int = 128,
         temperature: float = 0,
@@ -427,6 +427,7 @@ class QueryAgent:
             for q in queries:
                 for d in q.demo:
                     d.update_retrieval(d.get_all_ctxs(), method=self.ctx_increase)
+        # if None:    #### without any retrieval and reprompt, just examples and question
         if self.use_retrieval:
             return self.ret_prompt(queries, api_key=api_key)
         else:  # directly generate all without gold context
@@ -730,7 +731,7 @@ def write_worker(output_file: str, output_queue: Queue, size: int = None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='strategyqa', choices=['strategyqa', '2wikihop', 'wikiasp', 'asqa'])
-    parser.add_argument('--model', type=str, default='llama3.1-8b', choices=['llama3.1-8b', 'mamba2'])
+    parser.add_argument('--model', type=str, default='llama3.1-8b', choices=['llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'mamba2', 'mamba2-i'])
     parser.add_argument('--input', type=str, default=None)
     parser.add_argument('--output', type=str, default=None)
     parser.add_argument('--index_name', type=str, default='test')
