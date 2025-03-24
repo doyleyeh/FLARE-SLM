@@ -9,7 +9,8 @@ import asyncio
 import openai
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList
+import pdb
+from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Gemma3ForCausalLM, BitsAndBytesConfig
 
 logging.basicConfig(level=logging.INFO)
 
@@ -65,14 +66,20 @@ class FrequencyPenaltyProcessor(LogitsProcessor):
 
 
 ############################################################################################################
-# Model caching mechanism
+# Define a function to dynamically load the correct model
 _modelcache = {}
-
 def load_model_and_tokenizer(model_name):
     model_mapping = {
-        "llama3.1-8b": "meta-llama/Llama-3.1-8B-Instruct",
+        "llama3.1-8b-i": "meta-llama/Llama-3.1-8B-Instruct",
+        "llama3.1-8b": "meta-llama/Llama-3.1-8B",
+        "llama3.2-3b-i": "meta-llama/Llama-3.2-3B-Instruct",
+        "llama3.2-1b": "meta-llama/Llama-3.2-1B",
+        "llama3.2-1b-i": "meta-llama/Llama-3.2-1B-Instruct",
         "mamba2": "tiiuae/falcon-mamba-7b",
-        "gemma": "google/gemma-3-12b-it",
+        "mamba2-i": "tiiuae/Falcon3-Mamba-7B-Instruct",
+        "gemma3-12b-i": "google/gemma-3-12b-it",
+        "gemma3-12b": "google/gemma-3-12b-pt",
+        
     }
     if model_name not in model_mapping:
         raise ValueError(f"Unsupported model: {model_name}. Available models: {list(model_mapping.keys())}")
@@ -86,20 +93,25 @@ def load_model_and_tokenizer(model_name):
     
     model_path = model_mapping[model_name]
     logging.info(f"Loading model+tokenizer for {model_name} from {model_path}")
-
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
+    if "gemma" in model_name:
+        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+        model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token).eval()
+    else:    
+        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     if tokenizer.pad_token_id is None:
+        # fallback if eos_token_id is also None
         tokenizer.pad_token_id = 0
         
-    if torch.cuda.is_available():
-        model.to("cuda:1")
-        model = torch.nn.DataParallel(model)
+    # if torch.cuda.is_available():
+    #     model.to("cuda:3")
+    #     model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
+
 
 def HFmodel_call(*args, **kwargs):
     """
@@ -113,102 +125,24 @@ def HFmodel_call(*args, **kwargs):
       - stop (str or List[str]): stop string(s) for post-hoc truncation
       - echo (bool)
       - logprobs (int) => if > 0, return token-level info
+      - logit_bias (Dict[str, float])
+        e.g. {"foo": 0.5, "bar": 2.0}
 
     Returns an OpenAI-style dict with "model", "choices", "usage".
     """
-    model_name = kwargs.get('model', 'llama3.1-8b')
+    model_name = kwargs.get('model', 'llama3.1-8b-i')
     echo = kwargs.get('echo', False)
     messages = kwargs.get('messages', None)
     prompt = kwargs.get('prompt', "")
-    max_tokens = kwargs.get('max_tokens', 128)
+    max_tokens = kwargs.get('max_tokens', 256)
     temperature = kwargs.get('temperature', 0.0)
     top_p = kwargs.get('top_p', 1.0)
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
-    # We'll define a helper to re-encode and align logprobs with tokens
-    def align_logprobs(text_str, all_ids, all_lps, is_echo):
-        """
-        text_str: the final text portion we want logprobs for
-        all_ids: the newly generated token ids (in sequence)
-        all_lps: the logprobs for those newly generated token ids
-        is_echo: if True, we need to include prompt tokens with None logprobs
-        """
-        # If echo=True, text_str = (prompt + truncated_gen_text)
-        # If echo=False, text_str = truncated_gen_text
-        # We re-encode text_str to determine final tokens.
-        reenc = tokenizer(text_str, return_offsets_mapping=True, add_special_tokens=False)
-        reenc_ids = reenc["input_ids"]
-        reenc_offsets = reenc["offset_mapping"]
+    logit_bias = kwargs.get('logit_bias', None)
 
-        matched_strs = []
-        matched_lps = []
-        matched_offsets = []
 
-        # Pointers
-        p_reenc = 0
-        gen_consumed = 0
-
-        # If echo=True, the first `prompt_len` tokens in the final text are from prompt => None logprobs
-        # Then the subsequent tokens come from all_ids/all_lps
-        if is_echo:
-            # Re-encode the prompt separately, just to see how many tokens are in the prompt
-            prompt_part_ids = tokenizer.decode(input_ids[0], skip_special_tokens=False)
-            prompt_enc2 = tokenizer(prompt_part_ids, add_special_tokens=False)
-            prompt_num_toks = len(prompt_enc2["input_ids"])
-
-            # We'll iterate through all re-encoded tokens and set None for the prompt portion
-            # Then fill logprobs for the generated portion
-            while p_reenc < len(reenc_ids):
-                token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
-                start_char = reenc_offsets[p_reenc][0]
-
-                if p_reenc < prompt_num_toks:
-                    # This is part of the prompt => logprob=None
-                    matched_strs.append(token_txt)
-                    matched_lps.append(None)
-                    matched_offsets.append(start_char)
-                else:
-                    # Generated portion
-                    if gen_consumed < len(all_ids):
-                        # If it matches the ID, assign the logprob
-                        if reenc_ids[p_reenc] == all_ids[gen_consumed]:
-                            matched_strs.append(token_txt)
-                            matched_lps.append(all_lps[gen_consumed])
-                            matched_offsets.append(start_char)
-                            gen_consumed += 1
-                        else:
-                            # If mismatch, just skip forward
-                            # (This can happen if the tokenizer merges or splits differently.)
-                            matched_strs.append(token_txt)
-                            matched_lps.append(None)
-                            matched_offsets.append(start_char)
-                    else:
-                        # No more generated logprobs left
-                        matched_strs.append(token_txt)
-                        matched_lps.append(None)
-                        matched_offsets.append(start_char)
-
-                p_reenc += 1
-
-        else:
-            # echo=False => we only have the newly generated portion
-            while p_reenc < len(reenc_ids) and gen_consumed < len(all_ids):
-                token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
-                start_char = reenc_offsets[p_reenc][0]
-
-                # If the ID matches, assign the logprob
-                if reenc_ids[p_reenc] == all_ids[gen_consumed]:
-                    matched_strs.append(token_txt)
-                    matched_lps.append(all_lps[gen_consumed])
-                    matched_offsets.append(start_char)
-                    gen_consumed += 1
-                    p_reenc += 1
-                else:
-                    # If mismatch, skip forward in reenc
-                    p_reenc += 1
-
-        return matched_strs, matched_lps, matched_offsets
     # Convert a single string stop to list
     if isinstance(stop, str):
         stop = [stop]
@@ -219,13 +153,14 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+    device = "cpu"
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
     if messages is not None:
         # Chat style
-        if model_name == "llama3.1-8b":
+        if 'llama' in model_name:
             if len(messages) == 0:
                 prompt_text = ""
             else:
@@ -235,7 +170,8 @@ def HFmodel_call(*args, **kwargs):
                     content = msg["content"]
                     prompt_text += f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
                 prompt_text += "<|start_header_id|>assistant<|end_header_id|>"
-        elif model_name == "mamba2":
+            text_inputs = [prompt_text]
+        elif 'mamba' in model_name:
             prompt_text = ""
             for message in messages:
                 if message["role"] == "system":
@@ -244,10 +180,26 @@ def HFmodel_call(*args, **kwargs):
                     prompt_text += f"User: {message['content']}\n"
                 elif message["role"] == "assistant":
                     prompt_text += f"Assistant: {message['content']}\n"
+            text_inputs = [prompt_text]
+        elif 'gemma' in model_name and '-i' in model_name:
+            text_inputs = [[]]
+            assistant_message = []
+            for message in messages:
+                if message["role"] == "system":
+                    if len(text_inputs[0]) == 0 or text_inputs[0][-1]["role"] != "system":
+                        text_inputs[0].append({"role": "system", "content": [{"type": "text", "text": message["content"]}]})
+                    else:
+                        text_inputs[0][-1]["content"].append({"type": "text", "text": message["content"]})
+                elif message["role"] == "user":
+                    text_inputs[0].append({"role": "user", "content": [{"type": "text", "text": message["content"]}]})
+                elif message["role"] == "assistant":
+                    assistant_message.append({"role": "assistant", "content": [{"type": "text", "text": message["content"]}]})
+            if len(assistant_message) > 0:
+                text_inputs[0].extend(assistant_message)
         else:
             # fallback - just concatenate user messages
             prompt_text = "\n".join([m["content"] for m in messages])
-        text_inputs = [prompt_text]
+            text_inputs = [prompt_text]
     else:
         # Normal usage with 'prompt'
         if isinstance(prompt, str):
@@ -259,36 +211,65 @@ def HFmodel_call(*args, **kwargs):
 
     # 3) Build logits processors
     logits_processors = LogitsProcessorList()
+    # 3a) If a frequency penalty is specified, add it
     if freq_penalty > 0.0:
         freq_proc = FrequencyPenaltyProcessor(penalty=freq_penalty)
         logits_processors.append(freq_proc)
+
+    # 3b) If a logit_bias dict is provided, construct LogitsBiasProcessor
+    #     Here we map each word -> factor, by encoding the word to token IDs.
+    if logit_bias is not None:
+        token_ids_to_bias = {}
+        for word, factor in logit_bias.items():
+            # Convert the word to a tuple of token ids
+            encoded = tokenizer.encode(word, add_special_tokens=False)
+            token_ids = tuple(encoded)
+            token_ids_to_bias[token_ids] = factor
+
+        bias_proc = LogitsBiasProcessor(token_ids_to_bias)
+        logits_processors.append(bias_proc)
+    
 
     choices = []
     total_prompt_tokens = 0
     total_completion_tokens = 0
 
     for idx, prompt_text in enumerate(text_inputs):
+        # pdb.set_trace()
         # 4) Tokenize prompt
-        prompt_enc = tokenizer(
-            prompt_text,
-            return_tensors='pt',
-            add_special_tokens=False,
-            return_offsets_mapping=False
-        )
-        attention_mask = prompt_enc["attention_mask"].to(device)
-        input_ids = prompt_enc["input_ids"].to(device)
-        prompt_len = input_ids.shape[1]
+        if "gemma" in model_name and "-i" in model_name:
+            prompt_enc = tokenizer.apply_chat_template(
+                prompt_text,
+                return_tensors="pt",
+                add_special_tokens=False,
+                return_offsets_mapping=False
+            )
+            # pdb.set_trace()
+        else:
+            prompt_enc = tokenizer(
+                prompt_text,
+                return_tensors='pt',
+                add_special_tokens=False,
+                return_offsets_mapping=False
+            )
+        if "gemm" in model_name and "-i" in model_name:
+            input_ids = prompt_enc
+            prompt_len = input_ids.shape[1]
+        else:
+            attention_mask = prompt_enc["attention_mask"].to(device)
+            input_ids = prompt_enc["input_ids"].to(device)
+            prompt_len = input_ids.shape[1]
+        # pdb.set_trace()
 
         # 5) Generate
         with torch.no_grad():
             output = model_for_generate.generate(
                 input_ids=input_ids,
-                attention_mask=attention_mask,
+                attention_mask=attention_mask if "-i" not in model_name else None,
                 max_length=prompt_len + max_tokens,
                 do_sample=do_sample,
                 temperature=temperature if do_sample else None,
                 top_p=top_p,
-                repetition_penalty=1.0,
                 logits_processor=logits_processors,
                 return_dict_in_generate=True,
                 output_scores=True,
@@ -300,11 +281,14 @@ def HFmodel_call(*args, **kwargs):
 
         # Separate out just the newly generated portion
         gen_ids = full_ids[prompt_len:]  # newly generated tokens
-        gen_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+        gen_text = tokenizer.decode(gen_ids, skip_special_tokens=False)
+        print('gen_text:', gen_text)
 
         # 6) Apply post-hoc stop logic only on the *newly generated text*,
         #    ignoring leading newlines in that portion (to handle LLaMA's \n\n).
         truncated_gen_text = gen_text
+        # print('pdb debug for HFmodel_call before stop function')
+        # pdb.set_trace()
         if stop:
             # We'll strip leading newlines from the generated text for matching only
             cleaned_for_stop = gen_text.lstrip("\n")
@@ -321,7 +305,8 @@ def HFmodel_call(*args, **kwargs):
                 # Map back to the original (unstripped) gen_text index
                 actual_index_in_gen_text = earliest_index + leading_removed
                 truncated_gen_text = gen_text[:actual_index_in_gen_text]
-
+        # print('pdb debug for HFmodel_call after stop function')
+        # pdb.set_trace()
         # 7) Combine prompt + newly generated portion if echo=True,
         #    otherwise just the truncated_gen_text.
         if echo:
@@ -364,6 +349,90 @@ def HFmodel_call(*args, **kwargs):
                 tok_id = gen_token_ids[i]
                 new_token_logprobs.append(float(step_logprobs[tok_id].item()))
 
+            # We'll define a helper to re-encode and align logprobs with tokens
+            def align_logprobs(text_str, all_ids, all_lps, is_echo):
+                """
+                text_str: the final text portion we want logprobs for
+                all_ids: the newly generated token ids (in sequence)
+                all_lps: the logprobs for those newly generated token ids
+                is_echo: if True, we need to include prompt tokens with None logprobs
+                """
+                # If echo=True, text_str = (prompt + truncated_gen_text)
+                # If echo=False, text_str = truncated_gen_text
+                # We re-encode text_str to determine final tokens.
+                reenc = tokenizer(text_str, return_offsets_mapping=True, add_special_tokens=False)
+                reenc_ids = reenc["input_ids"]
+                reenc_offsets = reenc["offset_mapping"]
+
+                matched_strs = []
+                matched_lps = []
+                matched_offsets = []
+
+                # Pointers
+                p_reenc = 0
+                gen_consumed = 0
+
+                # If echo=True, the first `prompt_len` tokens in the final text are from prompt => None logprobs
+                # Then the subsequent tokens come from all_ids/all_lps
+                if is_echo:
+                    # Re-encode the prompt separately, just to see how many tokens are in the prompt
+                    prompt_part_ids = tokenizer.decode(input_ids[0], skip_special_tokens=False)
+                    prompt_enc2 = tokenizer(prompt_part_ids, add_special_tokens=False)
+                    prompt_num_toks = len(prompt_enc2["input_ids"])
+
+                    # We'll iterate through all re-encoded tokens and set None for the prompt portion
+                    # Then fill logprobs for the generated portion
+                    while p_reenc < len(reenc_ids):
+                        token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
+                        start_char = reenc_offsets[p_reenc][0]
+
+                        if p_reenc < prompt_num_toks:
+                            # This is part of the prompt => logprob=None
+                            matched_strs.append(token_txt)
+                            matched_lps.append(None)
+                            matched_offsets.append(start_char)
+                        else:
+                            # Generated portion
+                            if gen_consumed < len(all_ids):
+                                # If it matches the ID, assign the logprob
+                                if reenc_ids[p_reenc] == all_ids[gen_consumed]:
+                                    matched_strs.append(token_txt)
+                                    matched_lps.append(all_lps[gen_consumed])
+                                    matched_offsets.append(start_char)
+                                    gen_consumed += 1
+                                else:
+                                    # If mismatch, just skip forward
+                                    # (This can happen if the tokenizer merges or splits differently.)
+                                    matched_strs.append(token_txt)
+                                    matched_lps.append(None)
+                                    matched_offsets.append(start_char)
+                            else:
+                                # No more generated logprobs left
+                                matched_strs.append(token_txt)
+                                matched_lps.append(None)
+                                matched_offsets.append(start_char)
+
+                        p_reenc += 1
+
+                else:
+                    # echo=False => we only have the newly generated portion
+                    while p_reenc < len(reenc_ids) and gen_consumed < len(all_ids):
+                        token_txt = tokenizer.decode([reenc_ids[p_reenc]], skip_special_tokens=True)
+                        start_char = reenc_offsets[p_reenc][0]
+
+                        # If the ID matches, assign the logprob
+                        if reenc_ids[p_reenc] == all_ids[gen_consumed]:
+                            matched_strs.append(token_txt)
+                            matched_lps.append(all_lps[gen_consumed])
+                            matched_offsets.append(start_char)
+                            gen_consumed += 1
+                            p_reenc += 1
+                        else:
+                            # If mismatch, skip forward in reenc
+                            p_reenc += 1
+
+                return matched_strs, matched_lps, matched_offsets
+
             final_strs, final_lps, final_offsets = align_logprobs(
                 final_text, gen_token_ids, new_token_logprobs, echo
             )
@@ -399,12 +468,13 @@ def HFmodel_call(*args, **kwargs):
             "total_tokens": total_used_tokens
         }
     }
+    # print('pdb debug for HFmodel_call end')
+    # pdb.set_trace()
     return response
 
 
-
 if __name__ == '__main__':
-    # # Simple prompt completion
+    # Simple prompt completion
     response = HFmodel_call(
         prompt="Explain the theory of relativity in simple terms:",       # Single-string prompt
         model="mamba2",         # Which model to use (from your defined mappings)
@@ -414,7 +484,7 @@ if __name__ == '__main__':
     # Print the result
     print("Response object:\n", response)
     print("\nGenerated text:\n", response["choices"][0]["text"])
-    print("########################################################")
+    # print("########################################################")
 
     ##########################
     # Chat-style completion
@@ -423,9 +493,8 @@ if __name__ == '__main__':
     #     {"role": "user", "content": "What is the capital of Taiwan?"}
     # ]
     messages=[  # system
-        # {'role': 'system', 'content': 'Don\'t show your role when you reply.'},
+        {'role': 'system', 'content': 'You are a friendly, helpful AI assistant.'},
         {'role': 'system', 'content': 'Answer the question with three sentences.'},
-        {'role': 'system', 'content': 'You are a helpful assistant.'}
     ] + [  # current example
         {'role': 'user', 'content': "What is the capital of Taiwan?"},
     ]
@@ -438,35 +507,36 @@ if __name__ == '__main__':
     #     prompt += "<|start_header_id|>assistant<|end_header_id|>\n"
     # prompt = " ".join(f"{message['role'].capitalize()}: {message['content']}" for message in messages)
     response = HFmodel_call(
-        model="llama3.1-8b",
+        model="mamba2",
         messages=messages,    # Provide messages instead of a direct 'prompt'
         max_tokens=60,
-        echo=True,            # Include the prompt in the returned text
+        echo=False, 
+        temperature=0.8           # Include the prompt in the returned text
         # stop=["\n\n"]           # Stop at the first newline
     )
     print("Response object:\n", response)
     print("Chat response:\n", response["choices"][0]["text"])
     # ###################################
     # # Advanced usage with logprobs
-    response = HFmodel_call(
-        model="llama3.1-8b",
-        prompt="Explain the theory of relativity in simple terms:",
-        max_tokens=100,
-        temperature=0,       # Sampling temperature
-        top_p=1.0,             # Top-p nucleus sampling
-        frequency_penalty=0.5, # Apply frequency penalty (OpenAI-like)
-        echo=True,             # Include the prompt in the returned text
-        logprobs=1             # Return token-level logprobs
-    )
-    print("Response object:\n", response)
-    print("Generated text (including prompt):\n", response["choices"][0]["text"])
+    # response = HFmodel_call(
+    #     model="gemma3-12b-i",
+    #     prompt="Explain the theory of relativity in simple terms:",
+    #     max_tokens=100,
+    #     temperature=0,       # Sampling temperature
+    #     top_p=1.0,             # Top-p nucleus sampling
+    #     frequency_penalty=0.5, # Apply frequency penalty (OpenAI-like)
+    #     echo=True,             # Include the prompt in the returned text
+    #     logprobs=1             # Return token-level logprobs
+    # )
+    # print("Response object:\n", response)
+    # print("Generated text (including prompt):\n", response["choices"][0]["text"])
 
-    # If logprobs=1, you can inspect the tokens and their log probabilities:
-    log_probs_info = response["choices"][0]["logprobs"]
-    print("Tokens:", log_probs_info["tokens"])
-    print("Token logprobs:", log_probs_info["token_logprobs"])
-    print("Text offsets:", log_probs_info["text_offset"])
-    print("########################################################")
+    # # If logprobs=1, you can inspect the tokens and their log probabilities:
+    # log_probs_info = response["choices"][0]["logprobs"]
+    # print("Tokens:", log_probs_info["tokens"])
+    # print("Token logprobs:", log_probs_info["token_logprobs"])
+    # print("Text offsets:", log_probs_info["text_offset"])
+    # print("########################################################")
     # ##############################
     # # Multiple prompts
     # prompts = [

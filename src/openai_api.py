@@ -143,8 +143,8 @@ class QueryAgent:
                 self.ret_frequency = self.max_generation_len
         self.regenerate_at_end = retrieval_kwargs.get('regenerate_at_end', False)
 
-        self.frequency_penalty = retrieval_kwargs.get('frequency_penalty', 1.0)
-        self.frequency_penalty_in_prompt = retrieval_kwargs.get('frequency_penalty_in_prompt', 1.0)
+        self.frequency_penalty = retrieval_kwargs.get('frequency_penalty', 0.0)
+        self.frequency_penalty_in_prompt = retrieval_kwargs.get('frequency_penalty_in_prompt', 0.0)
 
         self.prefix_method = retrieval_kwargs.get('prefix_method', None)
         if self.prefix_method in {'sentence', 'all'} or (self.prefix_method and self.prefix_method.startswith('freq:')):  # no truncation when computing PPL
@@ -278,8 +278,8 @@ class QueryAgent:
         # API call
         if is_chat_model:
             messages=[  # system
-                {'role': 'system', 'content': 'Follow the given examples and answer the question.'},
-                {'role': 'system', 'content': 'You are a helpful assistant.'}
+                {'role': 'system', 'content': 'You are a helpful assistant.'},
+                {'role': 'system', 'content': 'Follow the given examples and answer the question.'}
             ] + [  # current example
                 {'role': 'user', 'content': prompts_to_issue[0]},
             ]

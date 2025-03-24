@@ -104,7 +104,8 @@ class Utils:
     @classmethod
     def is_chat(cls, model: str):
         # return 'llama' in model #### mark any model as a chat model if needed
-        return False
+        return 'gemma' in model and '-i' in model
+        # return False
     # @classmethod
     # def is_code(cls, model: str):
     #     return 'code' in model
@@ -242,7 +243,7 @@ def load_model_and_tokenizer(model_name):
         "llama3.2-1b-i": "meta-llama/Llama-3.2-1B-Instruct",
         "mamba2": "tiiuae/falcon-mamba-7b",
         "mamba2-i": "tiiuae/Falcon3-Mamba-7B-Instruct",
-        "gemma": "google/gemma-3-12b-it",
+        "gemma3-12b-i": "google/gemma-3-12b-it",
         
     }
     if model_name not in model_mapping:
@@ -291,14 +292,14 @@ def HFmodel_call(*args, **kwargs):
 
     Returns an OpenAI-style dict with "model", "choices", "usage".
     """
-    model_name = kwargs.get('model', 'llama3.1-8b')
+    model_name = kwargs.get('model', 'llama3.1-8b-i')
     echo = kwargs.get('echo', False)
     messages = kwargs.get('messages', None)
     prompt = kwargs.get('prompt', "")
     max_tokens = kwargs.get('max_tokens', 256)
     temperature = kwargs.get('temperature', 0.0)
     top_p = kwargs.get('top_p', 1.0)
-    freq_penalty = kwargs.get('', 0.0)
+    freq_penalty = kwargs.get('frequency_penalty', 0.0)
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
     logit_bias = kwargs.get('logit_bias', None)
@@ -320,7 +321,7 @@ def HFmodel_call(*args, **kwargs):
     # 2) Gather text inputs from `messages` or `prompt`
     if messages is not None:
         # Chat style
-        if model_name == "llama3.1-8b":
+        if 'llama' in model_name:
             if len(messages) == 0:
                 prompt_text = ""
             else:
