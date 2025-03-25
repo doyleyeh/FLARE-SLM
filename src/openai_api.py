@@ -427,8 +427,8 @@ class QueryAgent:
             for q in queries:
                 for d in q.demo:
                     d.update_retrieval(d.get_all_ctxs(), method=self.ctx_increase)
-        # if None:    #### without any retrieval and reprompt, just examples and question
-        if self.use_retrieval:
+        # if self.use_retrieval:
+        if None:    #### without any retrieval and reprompt, just examples and question
             return self.ret_prompt(queries, api_key=api_key)
         else:  # directly generate all without gold context
             # print('PDB debug for ret_prompt in  if self.use_retrieval:(call complete)')

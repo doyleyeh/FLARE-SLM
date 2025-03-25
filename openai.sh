@@ -15,11 +15,11 @@ config_filename="${config_filename%.*}"
 
 debug_batch_size=1
 batch_size=1
-model=llama3.1-8b
+model=llama3.1-8b-i
 # model=mamba2-i
 temperature=0
 
-output=output/${dataset}/${model}/${config_filename}.jsonl
+output=output/${dataset}/${model}/${config_filename}_no_revrieval.jsonl
 echo 'output to:' $output
 
 prompt_type=""

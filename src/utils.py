@@ -104,8 +104,8 @@ class Utils:
     @classmethod
     def is_chat(cls, model: str):
         # return 'llama' in model #### mark any model as a chat model if needed
-        return 'gemma' in model and '-i' in model
-        # return False
+        # return 'gemma' in model and '-i' in model
+        return False
     # @classmethod
     # def is_code(cls, model: str):
     #     return 'code' in model
@@ -268,7 +268,7 @@ def load_model_and_tokenizer(model_name):
         tokenizer.pad_token_id = 0
         
     if torch.cuda.is_available():
-        model.to("cuda:3")
+        model.to("cuda:2")
         model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
@@ -315,7 +315,7 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
