@@ -15,11 +15,23 @@ config_filename="${config_filename%.*}"
 
 debug_batch_size=1
 batch_size=1
-model=llama3.1-8b-i
+# model=llama3.1-8b
 # model=mamba2-i
+# model=phi3.5-4b-i
+# model=qwen2.5-7b
+model=gemma3-12b-i
+# model=xlstm7b
+
 temperature=0
 
-output=output/${dataset}/${model}/${config_filename}_no_revrieval.jsonl
+# output=output/${dataset}/${model}/${config_filename}_single_retrieval.jsonl
+# output=output/${dataset}/${model}/${config_filename}_no_retrieval.jsonl
+# output=output/${dataset}/${model}/${config_filename}_top4.jsonl
+# output=output/${dataset}/${model}/${config_filename}_top6.jsonl
+output=output/${dataset}/${model}/${config_filename}_top8.jsonl
+# output=output/${dataset}/${model}/${config_filename}_0.8.jsonl
+# output=output/${dataset}/${model}/${config_filename}_0.6.jsonl
+# output=output/${dataset}/${model}/${config_filename}.jsonl
 echo 'output to:' $output
 
 prompt_type=""

@@ -10,7 +10,7 @@ import openai
 import torch
 import torch.nn as nn
 import pdb
-from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, Gemma3ForCausalLM, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, BitsAndBytesConfig, AutoConfig, Gemma3ForCausalLM
 
 logging.basicConfig(level=logging.INFO)
 
@@ -66,6 +66,72 @@ class FrequencyPenaltyProcessor(LogitsProcessor):
 
 
 ############################################################################################################
+def format_chat_prompt(messages, model_name):
+    is_chat_style = False
+    prompt_text = ""
+    if 'qwen' in model_name or 'mamba' in model_name:
+        system_started = False
+        user_text = ""
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|im_start|>system\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|im_start|>user\n{content}<|im_end|>\n"
+        prompt_text += f"<|im_end|>\n{user_text}<|im_start|>assistant\n"
+    elif 'llama' in model_name:
+        system_started = False
+        user_text = ""
+        prompt_text = "<|begin_of_text|>"
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|start_header_id|>system<|end_header_id|>\n\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|>"
+        prompt_text += f"<|eot_id|>\n{user_text}<|start_header_id|>assistant<|end_header_id|>\n\n"
+    elif 'phi' in model_name:
+        system_started = False
+        user_text = ""
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|system|>\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|user|>\n{content}<|end|>"
+        prompt_text += f"<|end|>\n{user_text}\n<|assistant|>\n"
+    else:
+        # Chat-style completion
+        is_chat_style = True
+        formatted_messages = []
+        if 'gemma' in model_name:
+            for message in messages:
+                if message["role"] == "system" and formatted_messages and formatted_messages[-1]["role"] == "system":
+                    formatted_messages[-1]["content"].append({"type": "text", "text": message["content"]})
+                else:
+                    formatted_messages.append({"role": message["role"], "content": [{"type": "text", "text": message["content"]}]})
+        else:
+            # Fallback format (original messages format)
+            for message in messages:
+                if message["role"] == "system" and formatted_messages and formatted_messages[-1]["role"] == "system":
+                    formatted_messages[-1]["content"] += " " + message["content"]
+                else:
+                    formatted_messages.append({"role": message["role"], "content": message["content"]})
+        return [formatted_messages], is_chat_style  # return as list for consistency
+    return [prompt_text], is_chat_style
+
 # Define a function to dynamically load the correct model
 _modelcache = {}
 def load_model_and_tokenizer(model_name):
@@ -79,7 +145,11 @@ def load_model_and_tokenizer(model_name):
         "mamba2-i": "tiiuae/Falcon3-Mamba-7B-Instruct",
         "gemma3-12b-i": "google/gemma-3-12b-it",
         "gemma3-12b": "google/gemma-3-12b-pt",
-        
+        "qwen2.5-7b-i": "Qwen/Qwen2.5-7B-Instruct",
+        "qwen2.5-1.5b": "Qwen/Qwen2.5-1.5B",
+        "phi4-4b-i":"microsoft/Phi-4-mini-instruct",
+        "phi3.5-4b-i":"microsoft/Phi-3.5-mini-instruct",
+        "xlstm7b": "NX-AI/xLSTM-7b"
     }
     if model_name not in model_mapping:
         raise ValueError(f"Unsupported model: {model_name}. Available models: {list(model_mapping.keys())}")
@@ -92,10 +162,18 @@ def load_model_and_tokenizer(model_name):
         raise ValueError("Hugging Face token not found. Please set the HF_token environment variable.")
     
     model_path = model_mapping[model_name]
+    if "xlstm" in model_name:
+        xlstm_config = AutoConfig.from_pretrained("NX-AI/xLSTM-7b")
+        xlstm_config.step_kernel = "native"
+        xlstm_config.chunkwise_kernel = "chunkwise--native_autograd"
+        xlstm_config.sequence_kernel = "native_sequence__native"
+
     logging.info(f"Loading model+tokenizer for {model_name} from {model_path}")
     if "gemma" in model_name:
         quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-        model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token).eval()
+        model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, token=hf_token).eval()
+    elif "xlstm" in model_name:
+        model = AutoModelForCausalLM.from_pretrained(model_path, config=xlstm_config, torch_dtype=torch.float16, token=hf_token)
     else:    
         model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
@@ -105,9 +183,9 @@ def load_model_and_tokenizer(model_name):
         # fallback if eos_token_id is also None
         tokenizer.pad_token_id = 0
         
-    # if torch.cuda.is_available():
-    #     model.to("cuda:3")
-    #     model = torch.nn.DataParallel(model)
+    if torch.cuda.is_available():
+        model.to("cuda:0")
+        model = torch.nn.DataParallel(model)
     
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
@@ -141,7 +219,7 @@ def HFmodel_call(*args, **kwargs):
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
     logit_bias = kwargs.get('logit_bias', None)
-
+    chat_style_tokenizer = False
 
     # Convert a single string stop to list
     if isinstance(stop, str):
@@ -153,53 +231,83 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    # device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
-    device = "cpu"
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
     if messages is not None:
+        assert 'i' in model_name, "Chat-style completion requires a instruction model."
+        text_inputs, chat_style_tokenizer = format_chat_prompt(messages, model_name)
         # Chat style
-        if 'llama' in model_name:
-            if len(messages) == 0:
-                prompt_text = ""
-            else:
-                prompt_text = "<|begin_of_text|>"
-                for msg in messages:
-                    role = msg["role"]
-                    content = msg["content"]
-                    prompt_text += f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
-                prompt_text += "<|start_header_id|>assistant<|end_header_id|>"
-            text_inputs = [prompt_text]
-        elif 'mamba' in model_name:
-            prompt_text = ""
-            for message in messages:
-                if message["role"] == "system":
-                    prompt_text += f"System: {message['content']}\n"
-                elif message["role"] == "user":
-                    prompt_text += f"User: {message['content']}\n"
-                elif message["role"] == "assistant":
-                    prompt_text += f"Assistant: {message['content']}\n"
-            text_inputs = [prompt_text]
-        elif 'gemma' in model_name and '-i' in model_name:
-            text_inputs = [[]]
-            assistant_message = []
-            for message in messages:
-                if message["role"] == "system":
-                    if len(text_inputs[0]) == 0 or text_inputs[0][-1]["role"] != "system":
-                        text_inputs[0].append({"role": "system", "content": [{"type": "text", "text": message["content"]}]})
-                    else:
-                        text_inputs[0][-1]["content"].append({"type": "text", "text": message["content"]})
-                elif message["role"] == "user":
-                    text_inputs[0].append({"role": "user", "content": [{"type": "text", "text": message["content"]}]})
-                elif message["role"] == "assistant":
-                    assistant_message.append({"role": "assistant", "content": [{"type": "text", "text": message["content"]}]})
-            if len(assistant_message) > 0:
-                text_inputs[0].extend(assistant_message)
-        else:
-            # fallback - just concatenate user messages
-            prompt_text = "\n".join([m["content"] for m in messages])
-            text_inputs = [prompt_text]
+        # if 'qwen' in model_name or 'mamba' in model_name:
+        #     fsys = True
+        #     prompt_text = ""
+        #     temp = ""
+        #     for message in messages:
+        #         if message["role"] == "system":
+        #             if fsys: # first system message
+        #                 fsys = False
+        #                 prompt_text += "<|im_start|>system\n"
+        #             prompt_text += f"{message['content']} "
+        #         elif message["role"] == "user":
+        #             temp += f"<|im_start|>user\n{message['content']}<|im_end|>\n"
+        #     prompt_text += f"<|im_end|>\n{temp}<|im_start|>assistant\n"
+        #     text_inputs = [prompt_text]
+        # elif 'llama' in model_name:
+        #     fsys = True
+        #     prompt_text = "<|begin_of_text|>"
+        #     temp = ""
+        #     for message in messages:
+        #         if message["role"] == "system":
+        #             if fsys: # first system message
+        #                 fsys = False
+        #                 prompt_text += "<|start_header_id|>system<|end_header_id|>\n\n"
+        #             prompt_text += f"{message['content']} "
+        #         elif message["role"] == "user":
+        #             temp += f"<|start_header_id|>user<|end_header_id|>\n\n{message['content']}<|eot_id|>"
+        #     prompt_text += f"<|eot_id|>\n{temp}<|start_header_id|>assistant<|end_header_id|>\n\n"
+        #     text_inputs = [prompt_text]
+        # elif 'phi' in model_name:
+        #     fsys = True
+        #     prompt_text = ""
+        #     temp = ""
+        #     for message in messages:
+        #         if message["role"] == "system":
+        #             if fsys: # first system message
+        #                 fsys = False
+        #                 prompt_text += "<|system|>\n"
+        #             prompt_text += f"{message['content']} "
+        #         elif message["role"] == "user":
+        #             temp += f"<|user|>\n{message['content']}<|end|>"
+        #     prompt_text += f"<|end|>\n{temp}\n<|assistant|>\n"
+        #     text_inputs = [prompt_text]
+        # # # elif 'gemma' in model_name and '-i' in model_name:
+        # #     text_inputs = [[]]
+        # #     assistant_message = []
+        # #     for message in messages:
+        # #         if message["role"] == "system":
+        # #             if len(text_inputs[0]) == 0 or text_inputs[0][-1]["role"] != "system":
+        # #                 text_inputs[0].append({"role": "system", "content": [{"type": "text", "text": message["content"]}]})
+        # #             else:
+        # #                 text_inputs[0][-1]["content"].append({"type": "text", "text": message["content"]})
+        # #         elif message["role"] == "user":
+        # #             text_inputs[0].append({"role": "user", "content": [{"type": "text", "text": message["content"]}]})
+        # #         elif message["role"] == "assistant":
+        # #             assistant_message.append({"role": "assistant", "content": [{"type": "text", "text": message["content"]}]})
+        # #     if len(assistant_message) > 0:
+        # #         text_inputs[0].extend(assistant_message)
+        # else:
+        #     # Normal usage with 'messages' (keep the original format)
+        #     text_inputs = [[]]
+        #     for message in messages:
+        #         if message["role"] == "system":
+        #             if len(text_inputs[0]) == 0 or text_inputs[0][-1]["role"] != "system":
+        #                 text_inputs[0].append({"role": "system", "content": message["content"]})
+        #             else:
+        #                 text_inputs[0][-1]["content"] += message["content"]
+        #         elif message["role"] == "user":
+        #             text_inputs[0].append({"role": "user", "content": message["content"]})
+        #     chat_style_tokenizer = True
     else:
         # Normal usage with 'prompt'
         if isinstance(prompt, str):
@@ -237,7 +345,7 @@ def HFmodel_call(*args, **kwargs):
     for idx, prompt_text in enumerate(text_inputs):
         # pdb.set_trace()
         # 4) Tokenize prompt
-        if "gemma" in model_name and "-i" in model_name:
+        if chat_style_tokenizer:
             prompt_enc = tokenizer.apply_chat_template(
                 prompt_text,
                 return_tensors="pt",
@@ -252,20 +360,22 @@ def HFmodel_call(*args, **kwargs):
                 add_special_tokens=False,
                 return_offsets_mapping=False
             )
-        if "gemm" in model_name and "-i" in model_name:
-            input_ids = prompt_enc
-            prompt_len = input_ids.shape[1]
+        print('prompt_enc:', prompt_enc)
+        print('prompt_text:', prompt_text)
+        if chat_style_tokenizer:
+            attention_mask = torch.ones_like(prompt_enc).to(device)
+            input_ids = prompt_enc.to(device)
         else:
             attention_mask = prompt_enc["attention_mask"].to(device)
             input_ids = prompt_enc["input_ids"].to(device)
-            prompt_len = input_ids.shape[1]
+        prompt_len = input_ids.shape[1]
         # pdb.set_trace()
 
         # 5) Generate
         with torch.no_grad():
             output = model_for_generate.generate(
                 input_ids=input_ids,
-                attention_mask=attention_mask if "-i" not in model_name else None,
+                attention_mask=attention_mask,
                 max_length=prompt_len + max_tokens,
                 do_sample=do_sample,
                 temperature=temperature if do_sample else None,
@@ -476,8 +586,8 @@ def HFmodel_call(*args, **kwargs):
 if __name__ == '__main__':
     # Simple prompt completion
     response = HFmodel_call(
-        prompt="Explain the theory of relativity in simple terms:",       # Single-string prompt
-        model="mamba2",         # Which model to use (from your defined mappings)
+        prompt="What is LLM?",      # Single-string prompt
+        model="gemma3-12b",         # Which model to use (from your defined mappings)
         max_tokens=128                # Limit generation length
     )
 
@@ -492,30 +602,24 @@ if __name__ == '__main__':
     #     {"role": "system", "content": "You are a friendly, helpful AI assistant."},
     #     {"role": "user", "content": "What is the capital of Taiwan?"}
     # ]
-    messages=[  # system
-        {'role': 'system', 'content': 'You are a friendly, helpful AI assistant.'},
-        {'role': 'system', 'content': 'Answer the question with three sentences.'},
-    ] + [  # current example
-        {'role': 'user', 'content': "What is the capital of Taiwan?"},
-    ]
-    # if messages:
-    #     prompt = "<|begin_of_text|>"
-    #     for msg in messages:
-    #         role = msg["role"]
-    #         content = msg["content"]
-    #         prompt += f"<|start_header_id|>{role}<|end_header_id|>\n{content}<|eot_id|>\n"
-    #     prompt += "<|start_header_id|>assistant<|end_header_id|>\n"
-    # prompt = " ".join(f"{message['role'].capitalize()}: {message['content']}" for message in messages)
-    response = HFmodel_call(
-        model="mamba2",
-        messages=messages,    # Provide messages instead of a direct 'prompt'
-        max_tokens=60,
-        echo=False, 
-        temperature=0.8           # Include the prompt in the returned text
-        # stop=["\n\n"]           # Stop at the first newline
-    )
-    print("Response object:\n", response)
-    print("Chat response:\n", response["choices"][0]["text"])
+    # messages=[  # system
+    #     {'role': 'system', 'content': 'You are a friendly, helpful AI assistant.'},
+    #     {'role': 'system', 'content': 'Answer the question with three sentences.'},
+    # ] + [  # current example
+    #     {'role': 'user', 'content': "What is the capital of France?"},
+    # ]
+
+    # response = HFmodel_call(
+    #     model="gemma3-12b-i",
+    #     messages=messages,    # Provide messages instead of a direct 'prompt'
+    #     max_tokens=60,
+    #     echo=False, 
+    #     temperature=0           # Include the prompt in the returned text
+    #     # stop=["\n\n"]           # Stop at the first newline
+    # )
+    # print("Response object:\n", response)
+    # print("Chat response:\n", response["choices"][0]["text"])
+    
     # ###################################
     # # Advanced usage with logprobs
     # response = HFmodel_call(
@@ -558,7 +662,7 @@ if __name__ == '__main__':
     #     print("-"*40)
 
 
-    print("Usage stats:")
-    print("Prompt tokens used:", response["usage"]["prompt_tokens"])
-    print("Completion tokens used:", response["usage"]["completion_tokens"])
-    print("Total tokens used:", response["usage"]["total_tokens"])
+    # print("Usage stats:")
+    # print("Prompt tokens used:", response["usage"]["prompt_tokens"])
+    # print("Completion tokens used:", response["usage"]["completion_tokens"])
+    # print("Total tokens used:", response["usage"]["total_tokens"])

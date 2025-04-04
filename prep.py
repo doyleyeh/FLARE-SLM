@@ -411,7 +411,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='2wikihop', help='input dataset', choices=[
         'strategyqa', '2wikihop', 'wikiasp', 'asqa'])
     parser.add_argument('--model', type=str, default='llama3.1-8b-i', help='model name', choices=[
-        'llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'mamba2', 'mamba2-i'])
+        'llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'qwen2.5-7b-i', 'qwen2.5-7b', 'qwen2.5-3b-i', 'qwen2.5-3b', 'qwen2.5-1.5b-i', 'qwen2.5-1.5b', 'mamba2', 'mamba2-i', 'phi3.5-4b-i', 'phi4-4b-i', 'xlstm7b', 'gemma3-12b-i', 'gemma3-12b', 'gemma3-4b-i', 'gemma3-4b', 'gemma3-1b-i', 'gemma3-1b'])
     parser.add_argument('--out', type=str, default=None, help='output file')
     args = parser.parse_args()
 

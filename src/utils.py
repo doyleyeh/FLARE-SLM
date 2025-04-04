@@ -9,8 +9,20 @@ import asyncio
 import openai
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList
-# import pdb
+from packaging import version
+import transformers
+import pdb
+if version.parse(transformers.__version__) < version.parse("4.50.0"):
+    # Transformers is older than 4.50.0
+    from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, AutoConfig
+else:
+    # Transformers is 4.50.0 or newer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor, LogitsProcessorList, AutoConfig, Gemma3ForCausalLM
+
+
+
+
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -103,8 +115,7 @@ class Utils:
 
     @classmethod
     def is_chat(cls, model: str):
-        # return 'llama' in model #### mark any model as a chat model if needed
-        # return 'gemma' in model and '-i' in model
+        # return  '-i' in model
         return False
     # @classmethod
     # def is_code(cls, model: str):
@@ -113,6 +124,15 @@ class Utils:
     def no_stop(cls, model: str):
         # return 'turbo' in model
         return False
+    @classmethod
+    def use_auto_map(cls):
+        # return 'gemma' in model
+        return True
+    @classmethod
+    def cuda_device(cls):
+        if torch.cuda.is_available():
+            return "cuda:3"
+        return "cpu"    # Set by user
 
 
 # class NoKeyAvailable(Exception):
@@ -232,6 +252,76 @@ class Utils:
     
 ############################################################################################################
 
+def format_chat_prompt(messages, model_name):
+    chat_style_tokenizer = False
+    prompt_text = ""
+    if 'qwen' in model_name or 'mamba' in model_name:
+        system_started = False
+        user_text = ""
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|im_start|>system\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|im_start|>user\n{content}<|im_end|>\n"
+        prompt_text += f"<|im_end|>\n{user_text}<|im_start|>assistant\n"
+    elif 'llama' in model_name:
+        system_started = False
+        user_text = ""
+        prompt_text = "<|begin_of_text|>"
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|start_header_id|>system<|end_header_id|>\n\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|>"
+        prompt_text += f"<|eot_id|>\n{user_text}<|start_header_id|>assistant<|end_header_id|>\n\n"
+    elif 'phi' in model_name:
+        system_started = False
+        user_text = ""
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                if not system_started:
+                    prompt_text += "<|system|>\n"
+                    system_started = True
+                prompt_text += f"{content} "
+            elif role == "user":
+                user_text += f"<|user|>\n{content}<|end|>"
+        prompt_text += f"<|end|>\n{user_text}\n<|assistant|>\n"
+    elif 'gemma' in model_name:
+        user_text = ""
+        prompt_text = "<start_of_turn>user"
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+            if role == "system":
+                prompt_text += f"{content}\n"
+            elif role == "user":
+                user_text += f"{content}\n"
+        prompt_text += f"\n{user_text}<end_of_turn>\n<start_of_turn>model\n"
+            
+    else:
+        chat_style_tokenizer = True
+        # Fallback format (original messages format)
+        formatted_messages = []
+        for message in messages:
+            if message["role"] == "system" and formatted_messages and formatted_messages[-1]["role"] == "system":
+                formatted_messages[-1]["content"] += " " + message["content"]
+            else:
+                formatted_messages.append({"role": message["role"], "content": message["content"]})
+        return [formatted_messages], chat_style_tokenizer  # return as list for consistency
+    return [prompt_text], chat_style_tokenizer
+
 # Define a function to dynamically load the correct model
 _modelcache = {}
 def load_model_and_tokenizer(model_name):
@@ -241,11 +331,26 @@ def load_model_and_tokenizer(model_name):
         "llama3.2-3b-i": "meta-llama/Llama-3.2-3B-Instruct",
         "llama3.2-1b": "meta-llama/Llama-3.2-1B",
         "llama3.2-1b-i": "meta-llama/Llama-3.2-1B-Instruct",
+        "qwen2.5-7b-i": "Qwen/Qwen2.5-7B-Instruct",
+        "qwen2.5-7b": "Qwen/Qwen2.5-7B",
+        "qwen2.5-3b-i": "Qwen/Qwen2.5-3B-Instruct",
+        "qwen2.5-3b": "Qwen/Qwen2.5-3B",
+        "qwen2.5-1.5b-i": "Qwen/Qwen2.5-1.5B-Instruct",
+        "qwen2.5-1.5b": "Qwen/Qwen2.5-1.5B",
         "mamba2": "tiiuae/falcon-mamba-7b",
         "mamba2-i": "tiiuae/Falcon3-Mamba-7B-Instruct",
+        "phi4-4b-i":"microsoft/Phi-4-mini-instruct",
+        "phi3.5-4b-i":"microsoft/Phi-3.5-mini-instruct",
+        "xlstm7b": "NX-AI/xLSTM-7b",
         "gemma3-12b-i": "google/gemma-3-12b-it",
-        
+        "gemma3-12b": "google/gemma-3-12b-pt",
+        "gemma3-4b-i": "google/gemma-3-4b-it",
+        "gemma3-4b": "google/gemma-3-4b-pt",
+        "gemma3-1b-i": "google/gemma-3-1b-it",
+        "gemma3-1b": "google/gemma-3-1b-pt",
     }
+
+
     if model_name not in model_mapping:
         raise ValueError(f"Unsupported model: {model_name}. Available models: {list(model_mapping.keys())}")
     
@@ -257,20 +362,41 @@ def load_model_and_tokenizer(model_name):
         raise ValueError("Hugging Face token not found. Please set the HF_token environment variable.")
     
     model_path = model_mapping[model_name]
+    if 'xlstm' in model_name:
+        xlstm_config = AutoConfig.from_pretrained("NX-AI/xLSTM-7b")
+        xlstm_config.step_kernel = "native"
+        xlstm_config.chunkwise_kernel = "chunkwise--native_autograd"
+        xlstm_config.sequence_kernel = "native_sequence__native"
+
     logging.info(f"Loading model+tokenizer for {model_name} from {model_path}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
+    if "gemma" in model_name:
+        if Utils.use_auto_map():
+            max_memory = {
+            0: "80GiB",  # or other numbers depending on overhead
+            1: "80GiB",
+            }
+            model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, device_map="auto", max_memory=max_memory, token=hf_token).eval()
+        else:
+            model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, token=hf_token).eval()
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(True)
+    elif "xlstm" in model_name:
+        model = AutoModelForCausalLM.from_pretrained(model_path, config=xlstm_config, torch_dtype=torch.bfloat16, token=hf_token)
+    else:    
+        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
+
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     if tokenizer.pad_token_id is None:
         # fallback if eos_token_id is also None
         tokenizer.pad_token_id = 0
-        
-    if torch.cuda.is_available():
-        model.to("cuda:2")
+
+    if not Utils.use_auto_map():
+        model.to(Utils.cuda_device())
         model = torch.nn.DataParallel(model)
-    
     _modelcache[model_name] = (model, tokenizer)
     return model, tokenizer
 
@@ -303,7 +429,10 @@ def HFmodel_call(*args, **kwargs):
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
     logit_bias = kwargs.get('logit_bias', None)
-
+    device = Utils.cuda_device()
+    chat_style_tokenizer = False    # Default to False, if format_chat_prompt is called, it might be set to True
+    using_insprompt = False  # if user set exemplars to 0, we will not use instruct prompt
+    instruct_prompt = "You will be given a question and relevant documents. Answer the question by using only the information provided in the documents. Clearly present your reasoning step-by-step based on these documents. Your final sentence must explicitly state the answer in the format: \"So the answer is ...\n\n\".\n"
 
     # Convert a single string stop to list
     if isinstance(stop, str):
@@ -315,35 +444,12 @@ def HFmodel_call(*args, **kwargs):
 
     # 1) Load model & tokenizer
     model, tokenizer = load_model_and_tokenizer(model_name)
-    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
     model_for_generate = model.module if hasattr(model, 'module') else model
 
     # 2) Gather text inputs from `messages` or `prompt`
     if messages is not None:
-        # Chat style
-        if 'llama' in model_name:
-            if len(messages) == 0:
-                prompt_text = ""
-            else:
-                prompt_text = "<|begin_of_text|>"
-                for msg in messages:
-                    role = msg["role"]
-                    content = msg["content"]
-                    prompt_text += f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
-                prompt_text += "<|start_header_id|>assistant<|end_header_id|>"
-        elif model_name == "mamba2":
-            prompt_text = ""
-            for message in messages:
-                if message["role"] == "system":
-                    prompt_text += f"System: {message['content']}\n"
-                elif message["role"] == "user":
-                    prompt_text += f"User: {message['content']}\n"
-                elif message["role"] == "assistant":
-                    prompt_text += f"Assistant: {message['content']}\n"
-        else:
-            # fallback - just concatenate user messages
-            prompt_text = "\n".join([m["content"] for m in messages])
-        text_inputs = [prompt_text]
+        assert 'i' in model_name, "Chat-style completion requires an instruction model."
+        text_inputs, chat_style_tokenizer = format_chat_prompt(messages, model_name)
     else:
         # Normal usage with 'prompt'
         if isinstance(prompt, str):
@@ -379,15 +485,35 @@ def HFmodel_call(*args, **kwargs):
     total_completion_tokens = 0
 
     for idx, prompt_text in enumerate(text_inputs):
+        if using_insprompt:
+            prompt_text = instruct_prompt + prompt_text
         # 4) Tokenize prompt
-        prompt_enc = tokenizer(
-            prompt_text,
-            return_tensors='pt',
-            add_special_tokens=False,
-            return_offsets_mapping=False
-        )
-        attention_mask = prompt_enc["attention_mask"].to(device)
-        input_ids = prompt_enc["input_ids"].to(device)
+        if chat_style_tokenizer:
+            prompt_enc = tokenizer.apply_chat_template(
+                prompt_text,
+                return_tensors="pt",
+                add_special_tokens=False,
+                return_offsets_mapping=False
+            )
+            if Utils.use_auto_map():
+                attention_mask = torch.ones_like(prompt_enc)
+                input_ids = prompt_enc
+            else:
+                attention_mask = torch.ones_like(prompt_enc).to(device)
+                input_ids = prompt_enc.to(device)
+        else:
+            prompt_enc = tokenizer(
+                prompt_text,
+                return_tensors='pt',
+                add_special_tokens=False,
+                return_offsets_mapping=False
+            )
+            if Utils.use_auto_map():
+                attention_mask = torch.ones_like(prompt_enc["input_ids"])
+                input_ids = prompt_enc["input_ids"]
+            else:
+                attention_mask = prompt_enc["attention_mask"].to(device)
+                input_ids = prompt_enc["input_ids"].to(device)
         prompt_len = input_ids.shape[1]
 
         # 5) Generate
@@ -415,8 +541,6 @@ def HFmodel_call(*args, **kwargs):
         # 6) Apply post-hoc stop logic only on the *newly generated text*,
         #    ignoring leading newlines in that portion (to handle LLaMA's \n\n).
         truncated_gen_text = gen_text
-        # print('pdb debug for HFmodel_call before stop function')
-        # pdb.set_trace()
         if stop:
             # We'll strip leading newlines from the generated text for matching only
             cleaned_for_stop = gen_text.lstrip("\n")
@@ -433,8 +557,6 @@ def HFmodel_call(*args, **kwargs):
                 # Map back to the original (unstripped) gen_text index
                 actual_index_in_gen_text = earliest_index + leading_removed
                 truncated_gen_text = gen_text[:actual_index_in_gen_text]
-        # print('pdb debug for HFmodel_call after stop function')
-        # pdb.set_trace()
         # 7) Combine prompt + newly generated portion if echo=True,
         #    otherwise just the truncated_gen_text.
         if echo:

@@ -427,8 +427,7 @@ class QueryAgent:
             for q in queries:
                 for d in q.demo:
                     d.update_retrieval(d.get_all_ctxs(), method=self.ctx_increase)
-        # if self.use_retrieval:
-        if None:    #### without any retrieval and reprompt, just examples and question
+        if self.use_retrieval:
             return self.ret_prompt(queries, api_key=api_key)
         else:  # directly generate all without gold context
             # print('PDB debug for ret_prompt in  if self.use_retrieval:(call complete)')
@@ -446,7 +445,7 @@ class QueryAgent:
         self,
         queries: List[CtxPrompt],
         api_key: str = None,
-        max_iteration: int = 10000,  # TODO: too high?
+        max_iteration: int = 100,  # TODO: too high?
     ):
         batch_size = len(queries)
         final_retrievals: List[List[Tuple[str, List[str]]]] = [[] for _ in range(len(queries))]  # (bs, n_ret_steps, ret_topk)
@@ -488,6 +487,7 @@ class QueryAgent:
                     params={'max_tokens': self.look_ahead_steps, 'stop': self.final_stop_sym},
                     api_key=api_key,
                     is_lookahead=True)
+############################################################################################################## comment begin if want to single retrival
                 if self.look_ahead_truncate_at_boundary:
                     apireturns = [ar.truncate_at_boundary(self.look_ahead_truncate_at_boundary) for ar in apireturns]
                 look_aheads = [ar.use_as_query(
@@ -637,6 +637,7 @@ class QueryAgent:
                 max_gen_len += min_cont_len
             else:
                 raise NotImplementedError
+############################################################################################################## comment end if want to single retrival
 
             # decide whether to continue
             new_queries = []
@@ -680,6 +681,8 @@ class QueryAgent:
                 final_outputs[i] = cont
                 final_probs[i] = ar.token_probs
                 traces[i].append((ar.prompt, cont))
+        # print('PDB debug for end of ret_prompt')
+        # pdb.set_trace()
         return final_outputs, final_probs, final_retrievals, traces
 
 
@@ -731,7 +734,7 @@ def write_worker(output_file: str, output_queue: Queue, size: int = None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='strategyqa', choices=['strategyqa', '2wikihop', 'wikiasp', 'asqa'])
-    parser.add_argument('--model', type=str, default='llama3.1-8b', choices=['llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'mamba2', 'mamba2-i'])
+    parser.add_argument('--model', type=str, default='llama3.1-8b', choices=['llama3.1-8b-i', 'llama3.1-8b', 'llama3.2-3b-i', 'llama3.2-1b', 'llama3.2-1b-i', 'qwen2.5-7b-i', 'qwen2.5-7b', 'qwen2.5-3b-i', 'qwen2.5-3b', 'qwen2.5-1.5b-i', 'qwen2.5-1.5b', 'mamba2', 'mamba2-i', 'phi3.5-4b-i', 'phi4-4b-i', 'xlstm7b', 'gemma3-12b-i', 'gemma3-12b', 'gemma3-4b-i', 'gemma3-4b', 'gemma3-1b-i', 'gemma3-1b'])
     parser.add_argument('--input', type=str, default=None)
     parser.add_argument('--output', type=str, default=None)
     parser.add_argument('--index_name', type=str, default='test')

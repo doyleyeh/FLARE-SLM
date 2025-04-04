@@ -1,5 +1,5 @@
 {
-    "topk": 2,
+    "topk": 8,
     "use_ctx": true,
     "frequency": 64,
     "max_query_length": 64,
@@ -7,7 +7,7 @@
     "look_ahead_steps": 128,
     "look_ahead_pre_retrieval": "first",
     "look_ahead_truncate_at_boundary": "sentence",
-    "look_ahead_filter_prob": 0.6,
+    "look_ahead_filter_prob": 0.8,
     "look_ahead_mask_prob": 0.4,
     "look_ahead_mask_method": "simple",
     "only_use_look_ahead": true,
