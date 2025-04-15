@@ -2,7 +2,7 @@
 
 This repository contains the code and data for the paper
 [Active Retrieval Augmented Generation](https://arxiv.org/abs/2305.06983).
-This repository was forked from [Flare](https://github.com/jzbjyb/FLARE/tree/main)
+It is built upon and forked from the [FLARE repository](https://github.com/jzbjyb/FLARE/tree/main).
 
 ## Overview
 
