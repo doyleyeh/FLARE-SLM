@@ -2,6 +2,7 @@
 
 This repository contains the code and data for the paper
 [Active Retrieval Augmented Generation](https://arxiv.org/abs/2305.06983).
+This repository was forked from [Flare](https://github.com/jzbjyb/FLARE/tree/main)
 
 ## Overview
 
@@ -37,25 +38,39 @@ popd
 python prep.py --task build_elasticsearch --inp data/dpr/psgs_w100.tsv wikipedia_dpr  # build index
 ```
 
-### Setup Bing search
-This is only required for experiments on the WikiASP dataset.
-1. Create a bing search API key following instructions on [https://www.microsoft.com/en-us/bing/apis/bing-web-search-api](https://www.microsoft.com/en-us/bing/apis/bing-web-search-api).
-2. Run a local bing search server with caching functionality to save credits: `export BING_SEARCH_KEY=$YOUR_KEY; python bing_search_cache_server.py &> bing_log.out &`.
+### Setting up the HuggingFace API key
+Add your HuggingFace API key to the `.bashrc` file by executing the following command:
+```shell
+vim ~/.bashrc
+```
+Inside the file, assign your key to the HF_token environment variable as shown below:
+```
+export HF_token="your_key_here"
+```
+Save the changes and reload your `.bashrc` by running:
+```shell
+source ~/.bashrc
+```
+### Experiment Configuration
+The following parameters can be modified to control the experimental setup:
+**In `configs/2wikihop_flare_config.json`:**
+- `topk`: The number of documents to retrieve upon triggering retrieval.
+- `use_ctx`: If set to `false`, no retrieved documents are included. Instead, the prompt consists only of the exemplar questions and answers, along with the current question.
+- `look_ahead_filter_prob`: Probability threshold for triggering retrieval.
+- `look_ahead_mask_prob`: Probability threshold for masking tokens with low confidence.
+**In `openai.sh`:**
+- `debug`: Set `true` to active the debugging mode which walks you through the iterative retrieval and generation process one example at a time.
+- `model`: Specify the model name (e.g., `llama3.1-8b-i`).
+- `fewshot`(under 2wikihop dataset): Number of few-shot exemplars to use.
+- `max_generation_len`(under 2wikihop dataset): Maximum length of generated outputs.
+- `max_num_examples`(under debug): Modify the value to run small-scale experiments.
 
-### Setup OpenAI keys
-Put OpenAI keys in the `keys.sh` file.
-Multiple keys can be used to accelerate experiments.
-Please avoid uploading your keys to Github by accident!
+If you would like to run the experiment with xLSTM, you have to install a specific version of transformers which is mentioned in the `setup.sh` (that version is not compatible with the Gemma model).
 
 ### Run FLARE
-Use the following command to run FLARE with `text-davinci-003`. 
 ```shell
 ./openai.sh 2wikihop configs/2wikihop_flare_config.json  # 2WikiMultihopQA dataset
-./openai.sh wikiasp configs/wikiasp_flare_config.json  # WikiAsp dataset
 ```
-Be careful, experiments are relatively expensive because FLARE calls OpenAI API multiple times for a single example. You can decrease `max_num_examples` to run small-scale experiments to save credits.
-Set `debug=true` to active the debugging mode which walks you through the iterative retrieval and generation process one example at a time.
-
 ## Citation
 ```
 @article{jiang2023flare,

@@ -7,10 +7,10 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 conda install -c conda-forge cchardet # if you get an error about cchardet
-#### For xLSTM packages
-# This transformers version is the one that has the XLSTM model if you want to use it (version is 4.47 so can't use gemma)
-pip install 'transformers @ git+https://github.com/NX-AI/transformers.git@integrate_xlstm'
-pip install xlstm mlstm_kernels
+######## For xLSTM packages
+# # This transformers version is the one that has the XLSTM model if you want to use it (version is 4.47 so can't use gemma)
+# pip install 'transformers @ git+https://github.com/NX-AI/transformers.git@integrate_xlstm'
+# pip install xlstm mlstm_kernels
 
 
 # elasticsearch disable disk usage threshold

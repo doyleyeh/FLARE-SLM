@@ -1,5 +1,5 @@
 {
-    "topk": 8,
+    "topk": 2,
     "use_ctx": true,
     "frequency": 64,
     "max_query_length": 64,

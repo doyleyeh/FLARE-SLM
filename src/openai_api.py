@@ -822,7 +822,6 @@ if __name__ == '__main__':
     retrieval_kwargs['retriever'] = retriever
     retrieval_kwargs['debug'] = args.debug
     retrieval_kwargs['final_stop_sym'] = args.final_stop_sym or ('!@#$%^&*()\n\n)(*&^%$#@!' if Utils.no_stop(model=args.model) else '\n\n')
-    # retrieval_kwargs['final_stop_sym'] = args.final_stop_sym or ('!@#$%^&*()\n\n)(*&^%$#@!' if Utils.no_stop(model=args.model) else '####')
 
     logging.info('=== retrieval kwargs ===')
     logging.info(retrieval_kwargs)

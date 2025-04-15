@@ -123,11 +123,11 @@ class Utils:
     @classmethod
     def no_stop(cls, model: str):
         # return 'turbo' in model
-        return False
+        return True
     @classmethod
     def use_auto_map(cls):
         # return 'gemma' in model
-        return True
+        return False
     @classmethod
     def cuda_device(cls):
         if torch.cuda.is_available():
@@ -428,11 +428,12 @@ def HFmodel_call(*args, **kwargs):
     freq_penalty = kwargs.get('frequency_penalty', 0.0)
     return_logprobs = kwargs.get('logprobs', 0)  # 0 or None => no logprobs
     stop = kwargs.get('stop', None)
+    
     logit_bias = kwargs.get('logit_bias', None)
     device = Utils.cuda_device()
-    chat_style_tokenizer = False    # Default to False, if format_chat_prompt is called, it might be set to True
-    using_insprompt = False  # if user set exemplars to 0, we will not use instruct prompt
-    instruct_prompt = "You will be given a question and relevant documents. Answer the question by using only the information provided in the documents. Clearly present your reasoning step-by-step based on these documents. Your final sentence must explicitly state the answer in the format: \"So the answer is ...\n\n\".\n"
+    chat_style_tokenizer = False    # Default to False, if format_chat_prompt is called, it will set to True when the prompt is chat style
+    using_insprompt = True  # if user set exemplars to 0, could set this to True to use instruct prompt
+    instruct_prompt = "You will be given a question and relevant documents. Answer the question by the information provided in the documents. Clearly present your reasoning with a logical chain of thought based on these documents. Your final sentence must explicitly state the answer in the format: \"So the answer is ...\n\n\".\n"
 
     # Convert a single string stop to list
     if isinstance(stop, str):
@@ -486,6 +487,7 @@ def HFmodel_call(*args, **kwargs):
 
     for idx, prompt_text in enumerate(text_inputs):
         if using_insprompt:
+            stop = None
             prompt_text = instruct_prompt + prompt_text
         # 4) Tokenize prompt
         if chat_style_tokenizer:
