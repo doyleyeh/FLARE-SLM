@@ -53,11 +53,13 @@ source ~/.bashrc
 ```
 ### Experiment Configuration
 The following parameters can be modified to control the experimental setup:
+
 **In `configs/2wikihop_flare_config.json`:**
 - `topk`: The number of documents to retrieve upon triggering retrieval.
 - `use_ctx`: If set to `false`, no retrieved documents are included. Instead, the prompt consists only of the exemplar questions and answers, along with the current question.
 - `look_ahead_filter_prob`: Probability threshold for triggering retrieval.
 - `look_ahead_mask_prob`: Probability threshold for masking tokens with low confidence.
+
 **In `openai.sh`:**
 - `debug`: Set `true` to active the debugging mode which walks you through the iterative retrieval and generation process one example at a time.
 - `model`: Specify the model name (e.g., `llama3.1-8b-i`).
