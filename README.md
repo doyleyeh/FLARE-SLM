@@ -73,6 +73,13 @@ If you would like to run the experiment with xLSTM, you have to install a specif
 ```shell
 ./openai.sh 2wikihop configs/2wikihop_flare_config.json  # 2WikiMultihopQA dataset
 ```
+
+### Evluation
+Run the following command to evaluate the performance, the model and input path could be various.
+```shell
+python prep.py --task eval --dataset 2wikihop --model llama3.1-8b-i --inp output/2wikihop/llama3.1-8b-i/2wikihop_flare_config_with_stop.jsonl
+```
+
 ## Citation
 ```
 @article{jiang2023flare,

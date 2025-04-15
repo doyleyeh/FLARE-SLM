@@ -123,13 +123,13 @@ class Utils:
     @classmethod
     def no_stop(cls, model: str):
         # return 'turbo' in model
-        return True
+        return False
     @classmethod
-    def use_auto_map(cls):
+    def use_auto_map(cls):  # Set true if model is larger like Gemma 12B
         # return 'gemma' in model
         return False
     @classmethod
-    def cuda_device(cls):
+    def cuda_device(cls):   # Set the cuda device to load the model
         if torch.cuda.is_available():
             return "cuda:3"
         return "cpu"    # Set by user
@@ -251,7 +251,7 @@ class Utils:
 #         return openai.Completion.create(*args, **kwargs)
     
 ############################################################################################################
-
+# Format the chat prompt for different models
 def format_chat_prompt(messages, model_name):
     chat_style_tokenizer = False
     prompt_text = ""
